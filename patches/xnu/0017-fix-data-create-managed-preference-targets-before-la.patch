@@ -1,0 +1,22 @@
+From bc72ee35e472dfdd120e241e159e90f09239843a Mon Sep 17 00:00:00 2001
+From: woaphone <69346114+woaphone@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 01:49:13 +0800
+Subject: [PATCH 17/18] fix(data): create managed preference targets before
+ launchd
+
+
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index b33b117..590a288 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8244,6 +8244,10 @@ yunluo_data_prepare(proc_t p, user_addr_t scratch)
+ {
+ 	static const char * const dirs[] = {
+ 		"/private/var/Library", "/private/var/Library/Preferences",
++		/* /Library/Managed Preferences/mobile is the sealed root's symlink
++		 * to this Data path. PLCoreStorage watches the directory even when
++		 * no managed powerlog preferences are installed. */
++		"/private/var/Managed Preferences", "/private/var/Managed Preferences/mobile",
+ 		"/private/var/log", "/private/var/log/com.apple.xpc.launchd",
+ 		"/private/var/keybags", "/private/var/vm",
+ 		"/private/var/run", "/private/var/tmp", "/private/var/mobile",

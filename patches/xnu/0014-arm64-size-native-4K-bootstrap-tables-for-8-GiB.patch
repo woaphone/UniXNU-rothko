@@ -1,0 +1,23 @@
+From a62c9e579b903073c13fda17936787fa24ebaa81 Mon Sep 17 00:00:00 2001
+From: woaphone <69346114+woaphone@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 21:53:14 +0800
+Subject: [PATCH 14/18] arm64: size native 4K bootstrap tables for 8 GiB
+
+
+diff --git a/osfmk/arm/pmap/pmap.h b/osfmk/arm/pmap/pmap.h
+index 3f59f6b..d04a2e9 100644
+--- a/osfmk/arm/pmap/pmap.h
++++ b/osfmk/arm/pmap/pmap.h
+@@ -116,10 +116,10 @@
+  */
+ #define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 34)
+ #elif !defined(APPLE_ARM64_ARCH_FAMILY) && !__ARM_16K_PG__
+-/* Native 4 KiB: two roots plus up to seven L2 pages per 6 GiB mapping.
++/* Native 4 KiB: two roots plus up to nine L2 pages per 8 GiB mapping.
+  * The physical and virtual bases may each straddle an extra 1 GiB region.
+  */
+-#define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 16)
++#define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 20)
+ #else /* defined(ARM_LARGE_MEMORY) */
+ #define BOOTSTRAP_TABLE_SIZE (ARM_PGBYTES * 8)
+ #endif /* defined(ARM_LARGE_MEMORY) */

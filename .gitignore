@@ -1,0 +1,10 @@
+# Generated output, local overrides and proprietary inputs.
+out/
+build/
+.cache/
+local.toml
+*.img
+*.fd
+*.ipsw
+*.dmg
+*.bin

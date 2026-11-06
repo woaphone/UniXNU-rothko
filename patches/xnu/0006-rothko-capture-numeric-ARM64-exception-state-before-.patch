@@ -1,0 +1,90 @@
+From 406d0ee743436a53926def079e71b6660b3cc925 Mon Sep 17 00:00:00 2001
+From: woaphone <69346114+woaphone@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 23:05:11 +0800
+Subject: [PATCH 06/18] rothko: capture numeric ARM64 exception state before
+ panic
+
+
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 5744d99..e95a195 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -199,6 +199,22 @@ k70u_trace(const char *scope, const char *stage)
+ 	out[n++] = '\n'; out[n] = 0; k70u_pmsg(out);
+ }
+ 
++/* Exception-safe numeric output: no allocation, printf or scheduler locks. */
++void
++k70u_trace_hex(const char *name, uint64_t value)
++{
++	char out[112];
++	const char *prefix = "K70U-EXCEPTION4: ";
++	unsigned n = 0;
++	while (*prefix) out[n++] = *prefix++;
++	if (name) while (*name && n < 80) out[n++] = *name++;
++	out[n++] = '='; out[n++] = '0'; out[n++] = 'x';
++	for (int shift = 60; shift >= 0; shift -= 4)
++		out[n++] = "0123456789abcdef"[(value >> shift) & 15];
++	out[n++] = '\n'; out[n] = 0;
++	k70u_pmsg(out);
++}
++
+ void
+ k70u_startup_event(const char *event, uint64_t subsystem, uint64_t rank,
+     uint64_t function, uint64_t argument)
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index 6595321..c71a36b 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -40,6 +40,7 @@
+ #include <arm64/instructions.h>
+ 
+ #include <kern/debug.h>
++#include <kern/k70u_trace.h>
+ #include <kern/restartable.h>
+ #include <kern/socd_client.h>
+ #include <kern/task.h>
+@@ -472,6 +473,26 @@ panic_with_thread_kernel_state(const char *msg, arm_saved_state_t *ss)
+ 	ss_valid = is_saved_state64(ss);
+ 	arm_saved_state64_t *state = saved_state64(ss);
+ 
++	/* Capture real saved values before the general panic formatter/debugger. */
++	k70u_trace("EXCEPTION4 message", msg);
++	k70u_trace_hex("saved_state", (uint64_t)(uintptr_t)ss);
++	k70u_trace_hex("valid64", (uint64_t)ss_valid);
++	if (ss_valid) {
++		k70u_trace_hex("pc", state->pc);
++		k70u_trace_hex("lr", state->lr);
++		k70u_trace_hex("sp", state->sp);
++		k70u_trace_hex("fp", state->fp);
++		k70u_trace_hex("cpsr", state->cpsr);
++		k70u_trace_hex("esr", state->esr);
++		k70u_trace_hex("far", state->far);
++		for (unsigned i = 0; i < 29; i++) {
++			char name[4] = {'x', 0, 0, 0};
++			if (i >= 10) { name[1] = '0' + i / 10; name[2] = '0' + i % 10; }
++			else name[1] = '0' + i;
++			k70u_trace_hex(name, state->x[i]);
++		}
++	}
++
+ 	os_atomic_cmpxchg(&original_faulting_state, NULL, state, seq_cst);
+ 
+ 	// rdar://80659177
+diff --git a/osfmk/kern/k70u_trace.h b/osfmk/kern/k70u_trace.h
+index cc2c4bb..a0a7afe 100644
+--- a/osfmk/kern/k70u_trace.h
++++ b/osfmk/kern/k70u_trace.h
+@@ -6,10 +6,12 @@ extern "C" {
+ #endif
+ #if defined(__arm64__)
+ void k70u_pmsg(const char *);
++void k70u_trace_hex(const char *, uint64_t);
+ void k70u_trace(const char *, const char *);
+ void k70u_startup_event(const char *, uint64_t, uint64_t, uint64_t, uint64_t);
+ #else
+ #define k70u_pmsg(s) ((void)0)
++#define k70u_trace_hex(a,b) ((void)0)
+ #define k70u_trace(a,b) ((void)0)
+ #define k70u_startup_event(a,b,c,d,e) ((void)0)
+ #endif

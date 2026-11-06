@@ -1,0 +1,49 @@
+format = 2
+
+[areas.platform]
+level = "source"
+status = "implemented"
+sources = ["drivers/ArmDTPlatform", "drivers/ArmCpu", "patches/xnu/series"]
+notes = "MT6989 DT platform, GICv3, PSCI SMC and eight-core handoff."
+
+[areas.storage]
+level = "device"
+status = "implemented"
+sources = ["drivers/NativeMtkUfs", "drivers/NativeRamBlock"]
+notes = "UFS LU2 read path, unixnu userdata windows and Data seed integration; hardware root evidence exists in unx16/unx17 logs."
+
+[areas.display]
+level = "device"
+status = "implemented"
+sources = ["drivers/NativeMobileDisplay", "kits/rothko"]
+notes = "GOP/CMD active presentation and 1220x2712 panel geometry."
+
+[areas.input]
+level = "device"
+status = "implemented"
+sources = ["drivers/NativeHidInput", "kits/rothko"]
+notes = "Goodix Berlin9916K touch and board key routes."
+
+[areas.power]
+level = "source"
+status = "partial"
+sources = ["drivers/MtkCpuFreq"]
+notes = "FDVFS boot requests are integrated; runtime governor and battery backend remain open."
+
+[areas.wireless]
+level = "none"
+status = "planned"
+sources = []
+notes = "Wi-Fi and Bluetooth are documented separately and not claimed as implemented."
+
+[areas.firmware]
+level = "external"
+status = "separate-repository"
+sources = ["../uefi-rothko"]
+notes = "UEFI is intentionally outside this repository."
+
+[areas.verification]
+level = "device"
+status = "partial"
+sources = ["docs/verification.md"]
+notes = "Activation UI, XNU entry, SMP, HID and UFS read evidence recorded; BROM incident remains unresolved."

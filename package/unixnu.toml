@@ -1,0 +1,11 @@
+version = 1
+
+[boot]
+timeout = 3
+default = "xnu"
+
+[[entry]]
+id = "xnu"
+title = "rothko XNU"
+type = "xnu"
+path = "Payloads/kernel.macho"

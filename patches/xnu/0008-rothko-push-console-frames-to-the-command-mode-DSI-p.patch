@@ -1,0 +1,343 @@
+From aecab18b37c7f9fda3710b37aea09bc132c64851 Mon Sep 17 00:00:00 2001
+From: woaphone <woaphone@local>
+Date: Thu, 5 Nov 2026 07:02:53 +0800
+Subject: [PATCH 08/18] rothko: push console frames to the command-mode DSI
+ panel, mirror console to pmsg (unx1)
+
+The panel only shows frames that are pushed; after the UEFI hand-off nothing
+pushed them, so XNU text never appeared.  A thread_call copies layer 0 (the
+console framebuffer) into layer 1 and replays RothkoDisplayDxe's mutex/DSI
+start sequence when the console changed (k70u-dsi, k70u-dsi-ms); panic text
+pushes on every newline.  Console lines are mirrored to pmsg (k70u-con), the
+startup-callback trace that wrapped the pmsg ring is opt-in (k70u-callbacks),
+and a 10 s heartbeat reports IRQ and push counts.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 143442b..c66441d 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -219,6 +219,16 @@ void
+ k70u_startup_event(const char *event, uint64_t subsystem, uint64_t rank,
+     uint64_t function, uint64_t argument)
+ {
++	/* [k70u unx1] ~4800 lines per boot wrapped the pmsg ring; opt-in now. */
++	static int k70u_callbacks = -1;
++	if (k70u_callbacks < 0) {
++		uint32_t value = 0;
++		PE_parse_boot_argn("k70u-callbacks", &value, sizeof(value));
++		k70u_callbacks = value ? 1 : 0;
++	}
++	if (!k70u_callbacks) {
++		return;
++	}
+ 	char out[384];
+ 	unsigned n = k70u_copy(out, 0, "K70U-CALLBACK3: ");
+ 	const uint64_t values[4] = {subsystem, rank, function, argument};
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index b310f23..c7d07db 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -41,6 +41,8 @@
+ 
+ #include <kern/debug.h>
+ #include <kern/k70u_trace.h>
++/* [k70u unx1] IRQs taken, printed by the K70U-HB heartbeat. */
++volatile uint64_t k70u_irq_count;
+ #include <kern/restartable.h>
+ #include <kern/socd_client.h>
+ #include <kern/task.h>
+@@ -2516,6 +2518,7 @@ sleh_irq(arm_saved_state_t *state)
+ 		k70u_irq_state("sleh_irq without an installed handler");
+ 		panic("sleh_irq: IRQ taken before the platform interrupt provider installed a handler");
+ 	}
++	k70u_irq_count++;
+ 	static uint32_t k70u_irq_logged;
+ 	const uint32_t k70u_irq_first = k70u_irq_logged < 2;
+ 	if (k70u_irq_first) {
+diff --git a/osfmk/console/serial_console.c b/osfmk/console/serial_console.c
+index f71ee0c..7dadc49 100644
+--- a/osfmk/console/serial_console.c
++++ b/osfmk/console/serial_console.c
+@@ -191,12 +191,80 @@ uint32_t yunluo_log_copy(uint64_t *pos, char *out, uint32_t max);
+  * store plus one atomic add; there is deliberately no lock, no allocation and
+  * no division.
+  */
++/*
++ * [k70u unx1 2026-11-05] Mirror console lines to pmsg ("K70U-CON: ...") so the
++ * kernel's own text (root wait, mount errors, panic text) survives a reboot even
++ * when nothing reaches the panel.  Same hot-path rules as the ring below: no
++ * allocation, no lock, never waits; a busy mirror drops the bytes.  k70u-con=0
++ * turns it off.
++ */
++#include <pexpert/pexpert.h>
++static char k70u_con_line[192];
++static uint32_t k70u_con_len;
++static volatile uint32_t k70u_con_busy;
++static int k70u_con_mode = -1;
++
++static void
++k70u_con_flush(void)
++{
++	char out[224];
++	uint32_t n = 0;
++	const char *prefix = "K70U-CON: ";
++	while (*prefix) {
++		out[n++] = *prefix++;
++	}
++	for (uint32_t i = 0; i < k70u_con_len; i++) {
++		out[n++] = k70u_con_line[i];
++	}
++	out[n++] = '\n';
++	out[n] = 0;
++	k70u_con_len = 0;
++	k70u_pmsg(out);
++}
++
++static void
++k70u_con_mirror(const char *c, int size)
++{
++	if (k70u_con_mode == 0) {
++		return;
++	}
++	if (!__sync_bool_compare_and_swap(&k70u_con_busy, 0, 1)) {
++		return;
++	}
++	if (k70u_con_mode < 0) {
++		uint32_t value = 1;
++		PE_parse_boot_argn("k70u-con", &value, sizeof(value));
++		k70u_con_mode = value ? 1 : 0;
++	}
++	if (k70u_con_mode == 1) {
++		for (int i = 0; i < size; i++) {
++			char ch = c[i];
++			if (ch == '\n') {
++				k70u_con_flush();
++				continue;
++			}
++			if (ch == '\r' || ch == 0) {
++				continue;
++			}
++			if ((unsigned char)ch < 0x20 && ch != '\t') {
++				ch = '.';
++			}
++			k70u_con_line[k70u_con_len++] = ch;
++			if (k70u_con_len >= sizeof(k70u_con_line) - 1) {
++				k70u_con_flush();
++			}
++		}
++	}
++	__sync_lock_release(&k70u_con_busy);
++}
++
+ void
+ yunluo_log_append(const char *c, int size)
+ {
+ 	if (size <= 0) {
+ 		return;
+ 	}
++	k70u_con_mirror(c, size);
+ 	/* One call can carry a whole console line buffer.  Cap it so a huge print
+ 	 * cannot spend a long time here while kprintf holds its spinlock with
+ 	 * interrupts off -- and account for exactly what was copied, so the reader
+diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
+index 7a9e91b..30b9d6f 100644
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -1244,6 +1244,149 @@ gc_update_color(int color, boolean_t fore)
+  * the framebuffer, the text console stops painting (logging goes to the ring). */
+ int yunluo_video_console_frozen = 0;
+ 
++/*
++ * [k70u unx1 2026-11-05] rothko (MT6989) screen log.
++ *
++ * The panel is a command-mode DSI panel: pixels written to DRAM reach the glass
++ * only when a frame is pushed.  RothkoDisplayDxe pushes every 200 ms during UEFI
++ * (RothkoDisplayDxe.c Refresh/PushFrame); after the hand-off nothing does, so
++ * the XNU console was invisible.  The overlay LK programmed scans out two full
++ * screen layers; UEFI keeps them identical by copying L0 into L1 before each
++ * push, and so does this code:
++ *   L0 0xFD91F000 stride 4992 (the console framebuffer, boot_args video base)
++ *   L1 0xFE612000 stride 4880, 1220 x 2712 x 32 bpp
++ *   push: MUTEX_EN(id 0) = 1 at 0x14001020, 0x14201020, 0x14401020,
++ *         then DSI_START 0x1420A000 = 0, = 1.  No completion wait (as UEFI).
++ * Values are the ones RothkoDisplayDxe measured and logged on this device
++ * (reports/ufs2-userlog-20261104.txt).  k70u-dsi=0 disables all of it.
++ */
++#define K70U_FB_L0_PHYS   0xFD91F000ULL
++#define K70U_FB_L1_PHYS   0xFE612000ULL
++#define K70U_FB_WIDTH     1220U
++#define K70U_FB_HEIGHT    2712U
++#define K70U_FB_L0_ROW    4992U
++#define K70U_FB_L1_ROW    4880U
++static const uint64_t k70u_mutex_bank_phys[3] = {0x14001000ULL, 0x14201000ULL, 0x14401000ULL};
++#define K70U_DSI_START_PHYS 0x1420A000ULL
++
++static volatile uint32_t *k70u_dsi_start;
++static volatile uint32_t *k70u_mutex_en[3];
++static volatile uint8_t *k70u_fb_l0;
++static volatile uint8_t *k70u_fb_l1;
++static thread_call_data_t k70u_display_call;
++static volatile uint32_t k70u_display_dirty;
++static volatile int k70u_display_state;      /* 0 not started, 1 running, -1 refused */
++static uint32_t k70u_display_ms = 1000;
++static uint64_t k70u_display_pushes;
++static uint64_t k70u_display_hb_last;
++volatile uint32_t k70u_display_busy;
++
++static void
++k70u_display_push(void)
++{
++	if (k70u_display_state != 1) {
++		return;
++	}
++	if (!__sync_bool_compare_and_swap(&k70u_display_busy, 0, 1)) {
++		return;
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++	for (uint32_t row = 0; row < K70U_FB_HEIGHT; row++) {
++		const volatile uint64_t *src = (const volatile uint64_t *)(k70u_fb_l0 + (uint64_t)row * K70U_FB_L0_ROW);
++		volatile uint64_t *dst = (volatile uint64_t *)(k70u_fb_l1 + (uint64_t)row * K70U_FB_L1_ROW);
++		for (uint32_t i = 0; i < (K70U_FB_WIDTH * 4U) / 8U; i++) {
++			dst[i] = src[i];
++		}
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++	for (int bank = 0; bank < 3; bank++) {
++		*k70u_mutex_en[bank] = 1;
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++	*k70u_dsi_start = 0;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	*k70u_dsi_start = 1;
++	__asm__ volatile ("dsb sy" ::: "memory");
++	k70u_display_pushes++;
++	__sync_lock_release(&k70u_display_busy);
++}
++
++static void
++k70u_display_tick(__unused thread_call_param_t p0, __unused thread_call_param_t p1)
++{
++	if (k70u_display_dirty) {
++		k70u_display_dirty = 0;
++		k70u_display_push();
++	}
++	uint64_t now = mach_absolute_time();
++	uint64_t ten_s = 0;
++	nanoseconds_to_absolutetime(10ULL * NSEC_PER_SEC, &ten_s);
++	if (now - k70u_display_hb_last >= ten_s) {
++		char line[160];
++		uint64_t ns = 0;
++		k70u_display_hb_last = now;
++		absolutetime_to_nanoseconds(now, &ns);
++		snprintf(line, sizeof(line), "K70U-HB: t=%llus irq=%llu push=%llu\n",
++		    (unsigned long long)(ns / NSEC_PER_SEC), (unsigned long long)k70u_irq_count,
++		    (unsigned long long)k70u_display_pushes);
++		k70u_pmsg(line);
++	}
++	uint64_t deadline = 0;
++	clock_interval_to_deadline(k70u_display_ms, NSEC_PER_MSEC, &deadline);
++	thread_call_enter_delayed(&k70u_display_call, deadline);
++}
++
++void
++k70u_display_start(void)
++{
++	uint32_t enabled = 1, ms = 1000;
++	char line[200];
++
++	if (k70u_display_state != 0) {
++		return;
++	}
++	PE_parse_boot_argn("k70u-dsi", &enabled, sizeof(enabled));
++	if (PE_parse_boot_argn("k70u-dsi-ms", &ms, sizeof(ms)) && ms >= 100 && ms <= 60000) {
++		k70u_display_ms = ms;
++	}
++	snprintf(line, sizeof(line), "K70U-DSI: console %ux%ux%u row=%u phys=0x%llx enabled=%u period=%ums\n",
++	    vinfo.v_width, vinfo.v_height, vinfo.v_depth, vinfo.v_rowbytes,
++	    (unsigned long long)vinfo.v_physaddr, enabled, k70u_display_ms);
++	k70u_pmsg(line);
++	if (enabled == 0 || vinfo.v_width != K70U_FB_WIDTH || vinfo.v_height != K70U_FB_HEIGHT ||
++	    vinfo.v_depth != 32 || vinfo.v_rowbytes != K70U_FB_L0_ROW) {
++		k70u_display_state = -1;
++		k70u_pmsg("K70U-DSI: push disabled (boot-arg or console geometry)\n");
++		return;
++	}
++	k70u_dsi_start = (volatile uint32_t *)ml_io_map(K70U_DSI_START_PHYS, PAGE_SIZE);
++	for (int bank = 0; bank < 3; bank++) {
++		vm_offset_t va = ml_io_map(k70u_mutex_bank_phys[bank], PAGE_SIZE);
++		k70u_mutex_en[bank] = va ? (volatile uint32_t *)(va + 0x20) : NULL;
++	}
++	k70u_fb_l0 = (volatile uint8_t *)ml_io_map_wcomb(K70U_FB_L0_PHYS,
++	    round_page((vm_size_t)K70U_FB_L0_ROW * K70U_FB_HEIGHT));
++	k70u_fb_l1 = (volatile uint8_t *)ml_io_map_wcomb(K70U_FB_L1_PHYS,
++	    round_page((vm_size_t)K70U_FB_L1_ROW * K70U_FB_HEIGHT));
++	if (!k70u_dsi_start || !k70u_mutex_en[0] || !k70u_mutex_en[1] || !k70u_mutex_en[2] ||
++	    !k70u_fb_l0 || !k70u_fb_l1) {
++		k70u_display_state = -1;
++		k70u_pmsg("K70U-DSI: mapping failed, push disabled\n");
++		return;
++	}
++	thread_call_setup(&k70u_display_call, k70u_display_tick, NULL);
++	k70u_display_state = 1;
++	k70u_display_dirty = 0;
++	k70u_display_push();
++	k70u_display_hb_last = mach_absolute_time();
++	snprintf(line, sizeof(line), "K70U-DSI: push running, first push done (pushes=%llu)\n",
++	    (unsigned long long)k70u_display_pushes);
++	k70u_pmsg(line);
++	uint64_t deadline = 0;
++	clock_interval_to_deadline(k70u_display_ms, NSEC_PER_MSEC, &deadline);
++	thread_call_enter_delayed(&k70u_display_call, deadline);
++}
++
+ void
+ vcputc_options(char c, __unused bool poll)
+ {
+@@ -1262,6 +1405,11 @@ vcputc_options(char c, __unused bool poll)
+ 		abandon_preemption_disable_measurement();
+ #endif /* SCHED_HYGIENE_DEBUG */
+ 		VCPUTC_LOCK_UNLOCK();
++		/* [k70u unx1] the panel only shows pushed frames */
++		k70u_display_dirty = 1;
++		if (c == '\n' && k70u_display_state == 1 && panic_active()) {
++			k70u_display_push();
++		}
+ 	}
+ }
+ 
+diff --git a/osfmk/kern/k70u_trace.h b/osfmk/kern/k70u_trace.h
+index b028502..ca54dd0 100644
+--- a/osfmk/kern/k70u_trace.h
++++ b/osfmk/kern/k70u_trace.h
+@@ -11,6 +11,8 @@ void k70u_trace(const char *, const char *);
+ void k70u_startup_event(const char *, uint64_t, uint64_t, uint64_t, uint64_t);
+ void k70u_irq_hex(const char *, uint64_t);
+ void k70u_irq_state(const char *);
++void k70u_display_start(void);
++extern volatile uint64_t k70u_irq_count;
+ #else
+ #define k70u_pmsg(s) ((void)0)
+ #define k70u_trace_hex(a,b) ((void)0)
+@@ -18,6 +20,7 @@ void k70u_irq_state(const char *);
+ #define k70u_startup_event(a,b,c,d,e) ((void)0)
+ #define k70u_irq_hex(a,b) ((void)0)
+ #define k70u_irq_state(a) ((void)0)
++#define k70u_display_start() ((void)0)
+ #endif
+ #ifdef __cplusplus
+ }
+diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+index c1f1d36..045bee8 100644
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -780,6 +780,8 @@ kernel_bootstrap_thread(void)
+ 	k70u_trace("bootstrap-thread-call", "initialize_screen enter");
+ 	initialize_screen(NULL, kPEAcquireScreen);
+ 	k70u_trace("bootstrap-thread-call", "initialize_screen returned");
++	/* [k70u unx1] command-mode DSI: start pushing console frames to the panel */
++	k70u_display_start();
+ 
+ 	/*
+ 	 *	Initialize the shared region module.

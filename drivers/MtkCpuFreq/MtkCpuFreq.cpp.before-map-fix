@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+// ABI: MediaTek mediatek-cpufreq-hw_main.c. Firmware owns PLL/voltage sequencing.
+#include "MtkCpuFreq.h"
+#include <IOKit/IODeviceMemory.h>
+#include <IOKit/IOLib.h>
+#include <IOKit/IOMemoryDescriptor.h>
+#include <libkern/c++/OSSharedPtr.h>
+
+namespace {
+constexpr unsigned kLutCount = 32;
+constexpr unsigned kEnable = 0x84, kRequest = 0x88, kState = 0x8c;
+uint32_t read(uintptr_t base, unsigned offset) {
+    return *reinterpret_cast<volatile uint32_t *>(base + offset);
+}
+void write(uintptr_t base, unsigned offset, uint32_t value) {
+    *reinterpret_cast<volatile uint32_t *>(base + offset) = value;
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+OSSharedPtr<IOMemoryMap> map(uint64_t address, uint32_t size) {
+    auto memory = IODeviceMemory::withRange(address, size);
+    return memory ? memory->map() : nullptr;
+}
+}
+void mtkCpuFreqStart(const MtkCpuFreqDomain *domains, unsigned count,
+                     uint64_t scalingModeAddress) {
+    auto modeMap = map(scalingModeAddress, 4);
+    if (!modeMap) return;
+    const bool frequencyRequest = read(modeMap->getVirtualAddress(), 0) != 0;
+    for (unsigned domain = 0; domain < count; ++domain) {
+        const auto &resource = domains[domain];
+        auto mmio = map(resource.address, resource.size);
+        if (!mmio) continue;
+        uintptr_t base = mmio->getVirtualAddress();
+        uint32_t before = read(base, kRequest), state = read(base, kState);
+        unsigned selected = 0, entries = 0;
+        uint32_t selectedKhz = 0, previousKhz = 0;
+        for (unsigned i = 0; i < kLutCount; ++i) {
+            uint32_t khz = (read(base, i * 4) & 0xfff) * 1000;
+            if (!khz || khz == previousKhz) break;
+            ++entries;
+            if (khz <= resource.targetKhz && khz > selectedKhz) {
+                selected = i;
+                selectedKhz = khz;
+            }
+            previousKhz = khz;
+        }
+        // An absent firmware LUT is not a license to program a guessed PLL.
+        if (!selectedKhz) {
+            kprintf("MTK-CPUFREQ17: domain=%u LUT unavailable entries=%u request=%u state=%x\n",
+                    domain, entries, before, state);
+            continue;
+        }
+        write(base, kEnable, 1);
+        write(base, kRequest, frequencyRequest ? selectedKhz : selected);
+        kprintf("MTK-CPUFREQ17: domain=%u prior=%u mode=%s target-khz=%u index=%u entries=%u request=%u state=%x->%x\n",
+                domain, before, frequencyRequest ? "khz" : "index", selectedKhz,
+                selected, entries, read(base, kRequest), state, read(base, kState));
+    }
+}

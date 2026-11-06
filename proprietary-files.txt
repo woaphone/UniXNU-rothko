@@ -1,0 +1,2 @@
+# Proprietary inputs are kept outside Git under .cache/firmware or local.toml.
+# The donor IPSW and trust-cache hashes are pinned in board.toml.

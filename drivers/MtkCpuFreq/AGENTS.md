@@ -1,0 +1,1 @@
+Maintain the MediaTek firmware cpufreq SRAM protocol. Keep board addresses and frequency policy in the device kit. Preserve firmware ownership of PLL/voltage sequencing. Use the consuming device official build; record source identity and separate host checks from hardware results. Do not claim an adaptive governor or measured frequency from request readback.

@@ -1,0 +1,24 @@
+From fd4edc747395525a914987bb88f063b5e549ecc7 Mon Sep 17 00:00:00 2001
+From: woaphone <69346114+woaphone@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 01:49:13 +0800
+Subject: [PATCH 18/18] fix(data): restore the owner addon preparation function
+ boundary
+
+
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 590a288..9dc183d 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7652,6 +7652,12 @@ native_ls_store_drop(proc_t p, user_addr_t scratch)
+ 			removed++;
+ 		}
+ 	}
++	(void)native_gpu_addon_write(marker, (const uint8_t *)"1\n", 2, 0644, ctx);
++	native_ls_store_status = removed;
++}
++static void
++native_gpu_addon_prepare(proc_t p, user_addr_t scratch)
++{
+ 	native_gpu_addon_install(p, scratch);
+ 	static const char extensions_source[] = "/private/var/ngpu/addons", extensions_point[] = "/System/Library/Extensions";
+ 	static const char daemons_source[] = "/private/var/ngpu/daemons", daemons_point[] = "/System/Library/LaunchDaemons";

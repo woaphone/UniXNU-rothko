@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+#pragma once
+#include <stdint.h>
+// mediatek,cpufreq-hw firmware SRAM ABI. Resources and policy belong to the board.
+struct MtkCpuFreqDomain { uint64_t address; uint32_t size; uint32_t targetKhz; };
+void mtkCpuFreqStart(const MtkCpuFreqDomain *domains, unsigned count,
+                     uint64_t scalingModeAddress);

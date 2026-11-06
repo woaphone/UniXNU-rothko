@@ -1,0 +1,122 @@
+[board]
+name = "rothko"
+soc = "MT6989"
+description = "Xiaomi Redmi K70 Ultra (rothko, MediaTek Dimensity 9300)"
+kit = "rothko"
+example = false
+
+[ipsw]
+url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+product = "iPad7,1"
+version = "17.7.11"
+build = "21H461"
+device_class = "j120ap"
+chip_id = 0x8011
+board_id = 12
+fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache"]
+
+[ipsw.sha256]
+"044-76040-038.dmg" = "3f99b859c9728379110b66657c7b15285bcb1925ad8b5726542e2cdcf8b1028d"
+"044-76034-038.dmg" = "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f"
+
+[userdata]
+# GPT entry named unixnu; 4 KiB logical blocks.
+first_lba = 0x4e2af00
+last_lba = 0x7b2aeff
+lba_bytes = 4096
+windows = [
+  { name = "OS", component = "OS" },
+  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+]
+
+[kernel]
+defconfig = "rothko_defconfig"
+archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "build-arm-driver.py ArmDTPlatform",
+  "build-arm-driver.py ArmCpu",
+  "build-arm-driver.py NativeAES",
+  "build-arm-driver.py NativeMtkUfs",
+  "build-arm-driver.py NativeRamBlock",
+  "build-arm-driver.py NativeHidInput",
+  "build-arm-driver.py NativeMobileDisplay",
+  "build-arm-driver.py NativeKeyStoreEvents",
+  "build-arm-driver.py MtkCpuFreq",
+  "build-native-aes-bindings.py",
+  "build-libpthread-kernel.py",
+]
+
+[kernel.prelink]
+tool = "kits/NativePrelink/emit_prelink.py"
+kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+kernelcache_sha256 = "f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7"
+slide = "-0x1000000"
+early_security_init = "com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"
+roots = [
+  "com.apple.driver.AppleARMPlatform",
+  "com.apple.filesystems.apfs",
+  "com.apple.driver.AppleMobileFileIntegrity",
+  "com.apple.iokit.IOStorageFamily",
+  "com.apple.iokit.IOHIDFamily",
+  "com.apple.iokit.IOHIDEventDriver",
+  "com.apple.kec.corecrypto",
+  "com.apple.security.sandbox",
+]
+extra_args = []
+
+[firmware]
+# UEFI is a separate repository; this device repository only records the contract.
+external_repository = "../uefi-rothko"
+config = "rothko"
+dsc = "Platforms/Xiaomi/rothkoPkg/rothko.dsc"
+fd = "Build/rothkoPkg/{target}_CLANGDWARF/FV/SILICIUM_UEFI.fd"
+preflight = []
+submodules = []
+patches = []
+packages = ["{uefi}", "{tree}/package", "{edk2}"]
+
+[firmware.defines]
+ENABLE_SECUREBOOT = "0"
+DEVICE_MODEL = "rothko"
+MEMORY_PROTECTION = "TRUE"
+SHIP_MODE = "FALSE"
+
+[payload]
+volume = "UNIXNU"
+size_mib = 56
+loader = "firmware"
+title = "rothko UniXNU"
+dram_size = "0x600000000"
+panic_screen = false
+trust_cache_sha256 = [
+  "7416ca4f8377146626bb284e2133c76bee6cb4e3ee0af5d648b186235a7323a7",
+  "8900d6a93d7a59ce1a872a5c081e559f4240a218f97e12d44d22dda46644d68",
+]
+timeout = 3
+kernel_args = [
+  "-v", "-enable_kprintf_spam", "serial=0", "debug=0x14e", "cpus=8",
+  "kt_fixed_zones=120", "offline-apfs-load=1", "panic_on_crash_disabled=1",
+  "sheng-data-persist=0", "yunluo-read-verify=0", "-apfs_shared_datavolume",
+  "sheng-aks=1", "-no_slto_panic", "ml-timeout-lock-panic-scale=40",
+  "armcpu-diagnostics=1", "offline-legacy-register=1", "offline-legacy-gop=1",
+  "offline-legacy-unit-scale=2", "offline-legacy-pm=1", "offline-legacy-validate=1",
+  "offline-legacy-transfer=1", "offline-legacy-cpu-present=1", "offline-legacy-phase=4",
+  "offline-legacy-retire=1", "offline-mobile-graphics-client=1",
+  "offline-mobile-graphics-load=1", "offline-key-events=1", "k70u-touch=1",
+  "offline-hid-input=1", "offline-hid-home=1", "sheng-touch-hid=1",
+  "sheng-touch-split=1", "yunluo-touch-rotate=0", "sheng-smp=1",
+  "armcpu-self-ipi=1", "armcpu-mmio-ipi=1",
+]
+
+[payload.adt]
+tool = "scripts/make-rothko-adt.py"
+soc = "rothko"
+chip_id = "0x8011"
+owned_memory_size = "0x200000000"
+root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
+cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
+psci_method = "smc"
+packed_data_ramdisk = true
+ipad_identity = true
+unique_chip_id = "required"

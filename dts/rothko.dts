@@ -1,0 +1,32 @@
+/dts-v1/;
+
+/*
+ * UniXNU board description for Redmi K70 Ultra (rothko / MT6989).
+ *
+ * This source records the board contract consumed by the ADT generator. The
+ * firmware FDT remains in the separate uefi-rothko repository. Addresses are
+ * kept here so the XNU port has a reviewable, source-controlled board record.
+ */
+/ {
+    compatible = "xiaomi,rothko", "mediatek,mt6989";
+    model = "Xiaomi Redmi K70 Ultra";
+
+    memory@40000000 {
+        device_type = "memory";
+        reg = <0x0 0x40000000 0x1 0xc0000000>;
+    };
+
+    cpus {
+        timebase-frequency = <13000000>;
+        cpu-count = <8>;
+    };
+
+    soc {
+        compatible = "mediatek,mt6989";
+        gic = <0x0 0x0c000000 0x0 0x00040000>;
+        gicr = <0x0 0x0c400000 0x0 0x00200000>;
+        ufs = <0x0 0x112b0000 0x0 0x00002a00>;
+        display = <1220 2712 32>;
+        touch-spi = <6>;
+    };
+};

@@ -1,0 +1,435 @@
+// K70U MT6989 / Goodix Berlin 9916K, using the existing yunluo HID consumer.
+// SPI/PMIF/pin registers: MT6989 vendor source and stock DTB.
+// Goodix protocol and configuration: goodix_core_rothko.ko and the device's
+// goodix_cfg_group_rothko_weijing.bin (config 6653f916, version 48).
+#include <IOKit/IODeviceMemory.h>
+#include <IOKit/IOLib.h>
+#include <IOKit/IOLocks.h>
+#include <IOKit/IOMemoryDescriptor.h>
+#include <kern/thread.h>
+#include <libkern/c++/OSSharedPtr.h>
+#include <pexpert/pexpert.h>
+#include <string.h>
+#include "GoodixConfig.h"
+
+extern "C" {
+bool native_hid_input_prepare(void);
+void native_hid_input_probe(void);
+void native_hid_input_probe_keys(void);
+int native_hid_touch_opened(void);
+void native_hid_kick_keys(void);
+void native_hid_input_bit(unsigned char bit, int down);
+void native_keystore_probe(void);
+void armcpu_smp_snapshot(void);
+extern volatile int native_touch_max_x, native_touch_max_y;
+volatile uint32_t native_touch_seq, native_touch_count, native_touch_hid_reports;
+volatile int native_touch_xs[12], native_touch_ys[12], native_touch_ids[12];
+}
+
+namespace {
+IOLock *touchSinkLock;
+void (*touchSink)(void *);
+void *touchSinkContext;
+}
+extern "C" void native_touch_set_sink(void (*sink)(void *), void *context) {
+    IOLockLock(touchSinkLock);
+    touchSink=sink;
+    touchSinkContext=context;
+    IOLockUnlock(touchSinkLock);
+}
+namespace {
+struct Region {
+    OSSharedPtr<IOMemoryMap> mapping;
+    uintptr_t va = 0;
+    bool map(uint64_t pa) {
+        IODeviceMemory *memory = IODeviceMemory::withRange(pa, 0x1000);
+        if (!memory) return false;
+        mapping = OSSharedPtr<IOMemoryMap>(memory->map(kIOMapAnywhere | kIOMapInhibitCache), OSNoRetain);
+        memory->release();
+        va = mapping ? static_cast<uintptr_t>(mapping->getVirtualAddress()) : 0;
+        return va != 0;
+    }
+    uint32_t read(unsigned off) const {
+        return *reinterpret_cast<volatile uint32_t *>(va + off);
+    }
+    void write(unsigned off, uint32_t value) const {
+        *reinterpret_cast<volatile uint32_t *>(va + off) = value;
+        __asm__ volatile("dsb sy" ::: "memory");
+    }
+    void change(unsigned off, uint32_t mask, uint32_t value) const {
+        write(off, (read(off) & ~mask) | value);
+    }
+};
+Region spi, gpio, pads, top, peri, pmif;
+uint32_t commandAddress, bufferAddress, touchAddress, configId;
+uint32_t transfers, timeouts, frames, contacts, badFrames;
+constexpr unsigned kCmd = 0x18, kStatus0 = 0x1c, kStatus1 = 0x20;
+constexpr uint32_t kSpiCommand = (2u << 22) | (1u << 19) | (1u << 18) | (3u << 12);
+
+uint16_t le16(const uint8_t *p) { return p[0] | (uint16_t(p[1]) << 8); }
+uint32_t le32(const uint8_t *p) { return le16(p) | (uint32_t(le16(p + 2)) << 16); }
+bool checksum(const uint8_t *p, unsigned n) {
+    if (n < 2) return false;
+    uint16_t sum = 0;
+    for (unsigned i = 0; i < n - 2; ++i) sum += p[i];
+    return sum == le16(p + n - 2);
+}
+
+// MT6373 SID5 is routed to PMIF-P by stock spmi-dev-mask bit5.
+bool pmifWait(unsigned state) {
+    for (unsigned us = 0; us < 10000; ++us) {
+        if (((pmif.read(0x8a8) >> 1) & 7) == state) return true;
+        IODelay(1);
+    }
+    return false;
+}
+bool enableLdo(unsigned address) {
+    if (!pmifWait(0)) return false;
+    pmif.write(0x880, (3u << 30) | (5u << 24) | address);
+    if (!pmifWait(6)) return false;
+    uint32_t value = pmif.read(0x894) & 0xff;
+    pmif.write(0x8a4, 1);
+    if (!pmifWait(0)) return false;
+    pmif.write(0x884, value | 1);
+    pmif.write(0x880, (3u << 30) | (1u << 29) | (5u << 24) | address);
+    return pmifWait(0);
+}
+
+void pinMode(unsigned pin, unsigned mode) {
+    gpio.change(0x300 + (pin / 8) * 0x10, 15u << ((pin % 8) * 4), mode << ((pin % 8) * 4));
+}
+void resetChip() {
+    gpio.write(0x108, 1u << 3);
+    IOSleep(2);
+    gpio.write(0x104, 1u << 3);
+    IOSleep(100);
+}
+
+// The stock MT6989 SPI driver has a FIFO polling path. SW-CS stays asserted
+// across 32-byte FIFO loads; CFG5 carries the upper packet length bits.
+bool access(uint32_t address, uint8_t *data, unsigned length, bool reading) {
+    const unsigned prefix = reading ? 8 : 5;
+    const unsigned total = prefix + length;
+    spi.write(kCmd, kSpiCommand | 4);
+    spi.write(kCmd, kSpiCommand);
+    spi.write(kCmd, kSpiCommand | 0x80); // vendor sw-CS assertion
+    bool paused = false, ok = true;
+    for (unsigned pos = 0; pos < total;) {
+        unsigned count = total - pos;
+        if (count > 32) count = 32;
+        spi.write(0x04, ((count - 1) << 16) | 207);
+        spi.write(0x68, 0);
+        for (unsigned w = 0; w < (count + 3) / 4; ++w) {
+            uint32_t word = 0;
+            for (unsigned b = 0; b < 4 && w * 4 + b < count; ++b) {
+                unsigned index = pos + w * 4 + b;
+                uint8_t value = 0;
+                if (index == 0) value = reading ? 0xf1 : 0xf0;
+                else if (index < 5) value = uint8_t(address >> ((4 - index) * 8));
+                else if (index < prefix) value = 0xff;
+                else if (!reading) value = data[index - prefix];
+                word |= uint32_t(value) << (b * 8);
+            }
+            spi.write(0x10, word);
+        }
+        spi.write(kCmd, kSpiCommand | 0x80 | (paused ? 2 : 1));
+        unsigned us = 0;
+        for (; us < 10000 && !spi.read(kStatus1); ++us) IODelay(1);
+        if (us == 10000) { ++timeouts; ok = false; break; }
+        paused = (spi.read(kStatus0) & 2) != 0;
+        for (unsigned w = 0; w < (count + 3) / 4; ++w) {
+            uint32_t word = spi.read(0x14);
+            if (reading) for (unsigned b = 0; b < 4 && w * 4 + b < count; ++b) {
+                unsigned index = pos + w * 4 + b;
+                if (index >= prefix) data[index - prefix] = uint8_t(word >> (b * 8));
+            }
+        }
+        pos += count;
+    }
+    spi.write(kCmd, kSpiCommand);
+    spi.write(kCmd, kSpiCommand | 4);
+    spi.write(kCmd, kSpiCommand);
+    ++transfers;
+    return ok;
+}
+bool read(uint32_t address, uint8_t *data, unsigned n) { return access(address, data, n, true); }
+bool write(uint32_t address, const uint8_t *data, unsigned n) {
+    return access(address, const_cast<uint8_t *>(data), n, false);
+}
+
+bool readInfo() {
+    uint8_t info[1024] = {};
+    if (!read(0x10070, info, 2)) return false;
+    unsigned length = le16(info);
+    if (length < 90 || length > sizeof(info) || !read(0x10070, info, length)) return false;
+    if (!checksum(info, length)) return false;
+    configId = le32(info + 6);
+    // version(16), feature(10), four sensor counts, followed by five variable
+    // count:u8/frequency:u16 arrays; the register-address table follows them.
+    unsigned at = 32;
+    for (unsigned i = 0; i < 5; ++i) {
+        if (at >= length) return false;
+        at += 1 + 2 * info[at];
+    }
+    if (at + 52 > length) return false;
+    commandAddress = le32(info + at);
+    bufferAddress = le32(info + at + 18);
+    touchAddress = le32(info + at + 44);
+    kprintf("K70U-TOUCH8: info len=%u cmd=%x buffer=%x touch=%x head=%u point=%u config=%x/%x\n",
+            length, commandAddress, bufferAddress, touchAddress,
+            le16(info + at + 48), le16(info + at + 50), configId, info[10]);
+    return true;
+}
+
+bool command(uint8_t code, int value = -1, int targetState = -1) {
+    uint8_t packet[16] = {}, reply[16] = {};
+    packet[2] = value < 0 ? 4 : 5;
+    packet[3] = code;
+    if (value >= 0) packet[4] = uint8_t(value);
+    unsigned sum = packet[2] + code + (value < 0 ? 0 : value);
+    packet[packet[2]] = uint8_t(sum);
+    packet[packet[2] + 1] = uint8_t(sum >> 8);
+    if (!write(commandAddress, packet, sizeof(packet))) return false;
+    bool acknowledged = false;
+    for (unsigned retry = 0; retry < 6; ++retry) {
+        if (!read(commandAddress, reply, sizeof(reply))) return false;
+        if (reply[1] == 0x80) { acknowledged = true; break; }
+        IOSleep(1);
+    }
+    IOSleep(40);
+    if (!read(commandAddress, reply, sizeof(reply))) return false;
+    acknowledged |= reply[1] == 0x80;
+    if (targetState >= 0) for (unsigned retry = 0; retry < 20; ++retry) {
+        if (!read(commandAddress, reply, sizeof(reply))) return false;
+        acknowledged |= reply[1] == 0x80;
+        if (reply[0] == targetState) break;
+        IOSleep(20);
+    }
+    kprintf("K70U-TOUCH8: command=%x data=%d ack=%x state=%x\n", code, value, reply[1], reply[0]);
+    return acknowledged && (targetState < 0 || reply[0] == targetState);
+}
+
+void downloadConfig() {
+    // Same Weijing configuration as the attached phone, excluding its group
+    // container header. Berlin D writes this configuration to controller flash.
+    // Download envelope: checksum32, destination32, length32.
+    // Its checksum is the sum of LE16 words after the checksum field.
+    static uint8_t config[1570], readback[1570];
+    config[4] = 0; config[5] = 0xe0; config[6] = 3; config[7] = 0;
+    config[8] = 0x16; config[9] = 6; config[10] = 0; config[11] = 0;
+    memcpy(config + 12, kGoodixConfigPackage + 139, 1558);
+    uint32_t sum = 0;
+    for (unsigned i = 4; i < sizeof(config); i += 2) sum += le16(config + i);
+    for (unsigned i = 0; i < 4; ++i) config[i] = uint8_t(sum >> (i * 8));
+    bool start = command(0x0a, -1, 4);
+    bool copied = start && write(bufferAddress, config, sizeof(config))
+        && read(bufferAddress, readback, sizeof(readback))
+        && !memcmp(config, readback, sizeof(config));
+    bool applied = copied && command(0x0b, -1, 7);
+    command(0x0c, -1, 0x80);
+    kprintf("K70U-TOUCH8: config=6653f916/48 start=%u copied=%u applied=%u\n", start, copied, applied);
+    resetChip();
+    readInfo();
+}
+void configureChip() {
+    // The original goodix_send_ic_config skips an identical config ID. Keep
+    // the phone's existing matched flash configuration across ordinary boots.
+    if (configId != 0x6653f916) downloadConfig();
+    else kprintf("K70U-TOUCH8: existing config=6653f916 retained\n");
+    // Disable Xiaomi THP raw-matrix streaming; use the controller's coordinate
+    // reports, which already contain the 1220x2712 coordinates.
+    command(0x90, 0);
+    command(0x91, 0x81);
+}
+
+void publish(const uint8_t *frame, unsigned count) {
+    uint32_t sequence = native_touch_seq;
+    native_touch_seq = sequence + 1;
+    __asm__ volatile("dmb ish" ::: "memory");
+    native_touch_count = count;
+    for (unsigned i = 0; i < count; ++i) {
+        const uint8_t *point = frame + 8 + i * 8;
+        native_touch_ids[i] = point[0] >> 4;
+        native_touch_xs[i] = le16(point + 2);
+        native_touch_ys[i] = le16(point + 4);
+    }
+    __asm__ volatile("dmb ish" ::: "memory");
+    native_touch_seq = sequence + 2;
+    ++frames;
+    contacts += count;
+    IOLockLock(touchSinkLock);
+    void (*sink)(void *) = touchSink;
+    OSObject *context = static_cast<OSObject *>(touchSinkContext);
+    if (sink) context->retain();
+    IOLockUnlock(touchSinkLock);
+    if (sink) {
+        sink(context);
+        context->release();
+    }
+}
+
+void touchThread(void *, wait_result_t) {
+    bool mapped = spi.map(0x11016000) && gpio.map(0x10005000) && pads.map(0x11f90000)
+        && top.map(0x10000000) && peri.map(0x11036000) && pmif.map(0x1c014000);
+    if (!mapped) { kprintf("K70U-TOUCH8: MMIO allocation failed\n"); return; }
+    // Original 208MHz parent, divider14 gives 14.857MHz (DT limit15MHz).
+    top.write(0x88, 0x87000000);
+    top.write(0x84, 0x07000000);
+    top.write(0x08, 1);
+    peri.write(0x28, 1u << 18);
+    spi.write(0x24, 1);
+    spi.write(0x28, (6u << 16) | 6);
+    spi.write(0x00, (207u << 16) | 207); // 1us CS setup/hold
+    spi.write(0x40, 0); // full duplex, single data wire
+    pinMode(3, 0); pinMode(4, 0);
+    gpio.write(0x004, 1u << 3);
+    gpio.write(0x008, 1u << 4);
+    for (unsigned pin = 231; pin <= 234; ++pin) pinMode(pin, 2);
+    pads.write(0x54, (1u << 3) | (15u << 9));
+    pads.write(0x88, 1u << 3); // IRQ bias disabled, as the stock active pin state
+    pads.write(0x98, 1u << 3);
+    bool iovdd = enableLdo(0x1c87);
+    IOSleep(3);
+    bool avdd = enableLdo(0x1c23);
+    IOSleep(15);
+    resetChip();
+    uint8_t version[28] = {};
+    bool versionRead = read(0x10014, version, sizeof(version));
+    kprintf("K70U-TOUCH8: SPI6 mux=%x gate=%x power=%u/%u version-read=%u patch=%.8s\n",
+            top.read(0x80), peri.read(0x10), iovdd, avdd, versionRead, version + 10);
+    if (!readInfo()) {
+        kprintf("K70U-TOUCH8: IC info unavailable transfers=%u timeouts=%u\n", transfers, timeouts);
+        return;
+    }
+    configureChip();
+    uint8_t frame[90] = {}, zero = 0;
+    unsigned ticks = 0;
+    for (;;) {
+        if (!(gpio.read(0x200) & (1u << 4))) {
+            bool received = read(touchAddress, frame, 8);
+            if (received && frame[0] && checksum(frame, 8)) {
+                unsigned count = frame[2] & 15;
+                if ((frame[0] & 0x80) && count <= 10) {
+                    bool body = !count || (read(touchAddress + 8, frame + 8, count * 8 + 2)
+                        && checksum(frame + 8, count * 8 + 2));
+                    if (body) publish(frame, count); else ++badFrames;
+                } else if (frame[0] & 0x40) {
+                    kprintf("K70U-TOUCH8: controller request=%u\n", frame[2]);
+                    if (frame[2] == 1) configureChip();
+                    else if (frame[2] == 3) { resetChip(); readInfo(); configureChip(); }
+                }
+                write(touchAddress, &zero, 1);
+            } else if (received && frame[0]) { ++badFrames; write(touchAddress, &zero, 1); }
+        }
+        if (++ticks % 1250 == 0) {
+            kprintf("K70U-TOUCH8: frames=%u contacts=%u bad=%u xfers=%u timeout=%u hid=%u irq=%u\n",
+                    frames, contacts, badFrames, transfers, timeouts, native_touch_hid_reports,
+                    (gpio.read(0x200) >> 4) & 1);
+            if (ticks == 1250 || ticks == 7500) armcpu_smp_snapshot();
+        }
+        IOSleep(4);
+    }
+}
+// Stock DT: MT6363 SID4 uses PMIF-M; SID5 touch supplies use PMIF-P.
+// PSC IRQs48/49/51/52 are Power/Home press/release. Final DTBO maps Home to VolumeDown.
+// VolumeUp is GPIO196 (DIN +0x260 bit4, active low).
+Region keyPmic, keyGpio;
+constexpr uint8_t kKeyIrqs = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4);
+bool keyPmicWait(unsigned state) {
+    for (unsigned us = 0; us < 10000; ++us) {
+        if (((keyPmic.read(0x8a8) >> 1) & 7) == state) return true;
+        IODelay(1);
+    }
+    return false;
+}
+bool keyPmicRead(unsigned address, uint8_t &value) {
+    if (!keyPmicWait(0)) return false;
+    keyPmic.write(0x880, (3u << 30) | (4u << 24) | address);
+    if (!keyPmicWait(6)) return false;
+    value = keyPmic.read(0x894) & 0xff;
+    keyPmic.write(0x8a4, 1);
+    return true;
+}
+bool keyPmicWrite(unsigned address, uint8_t value) {
+    if (!keyPmicWait(0)) return false;
+    keyPmic.write(0x884, value);
+    keyPmic.write(0x880, (3u << 30) | (1u << 29) | (4u << 24) | address);
+    return keyPmicWait(0);
+}
+void keyEdge(unsigned char bit, bool down) {
+    native_hid_input_bit(bit, down);
+    kprintf("K70U-KEY14: bit=%u down=%u\n", bit, down ? 1u : 0u);
+}
+void pmicEdges(uint8_t status, unsigned press, unsigned release,
+               unsigned char bit, bool &down) {
+    const bool pressed = status & (1u << press);
+    const bool released = status & (1u << release);
+    if (pressed && released) {
+        // Preserve a short tap whose two hardware edge latches arrived together.
+        keyEdge(bit, !down);
+        keyEdge(bit, down);
+    } else if (pressed || released) {
+        down = pressed;
+        keyEdge(bit, down);
+    }
+}
+void keyThread(void *, wait_result_t) {
+    thread_set_thread_name(current_thread(), "rothko-keys");
+    if (!keyPmic.map(0x1cc04000) || !keyGpio.map(0x10005000)) return;
+    // GPIO196 pinmux and pull-up are inherited from LK, matching the working UEFI input.
+    uint8_t enabled = 0, pending = 0;
+    const bool pmicReady = keyPmicRead(0x90f, enabled) &&
+        keyPmicWrite(0x90f, enabled | kKeyIrqs);
+    // Publish the existing yunluo keyboard/consumer devices after BackBoard
+    // has opened the digitizer; rothko previously never called this hook.
+    while (!native_hid_touch_opened()) IOSleep(100);
+    native_hid_input_probe_keys();
+    // Discard firmware-era latched keys, not other PMIC interrupt sources.
+    if (keyPmicRead(0x91b, pending)) keyPmicWrite(0x91b, pending & kKeyIrqs);
+    bool powerDown = false, downDown = false;
+    bool volumeUp = !(keyGpio.read(0x260) & (1u << 4));
+    if (volumeUp) keyEdge(2, true);
+    kprintf("K70U-KEY14: PMIF-M SID4 ready=%u PSC-mask=%02x GPIO196=%u HID published\n",
+            pmicReady ? 1u : 0u, kKeyIrqs, (keyGpio.read(0x260) >> 4) & 1);
+    unsigned polls = 0;
+    for (;;) {
+        uint8_t status = 0;
+        if (keyPmicRead(0x91b, status) && (status & kKeyIrqs)) {
+            const uint8_t owned = status & kKeyIrqs;
+            keyPmicWrite(0x91b, owned);
+            pmicEdges(owned, 0, 3, 1, powerDown);
+            pmicEdges(owned, 1, 4, 3, downDown);
+        }
+        const bool nextDown = !(keyGpio.read(0x260) & (1u << 4));
+        if (nextDown != volumeUp) {
+            volumeUp = nextDown;
+            keyEdge(2, volumeUp);
+        }
+        if (++polls == 1500) native_hid_kick_keys();
+        IOSleep(10);
+    }
+}
+void hidThread(void *, wait_result_t) { native_hid_input_probe(); }
+void start(thread_continue_t entry) {
+    thread_t thread = THREAD_NULL;
+    kern_return_t rc = kernel_thread_start(entry, nullptr, &thread);
+    if (rc == KERN_SUCCESS) thread_deallocate(thread);
+}
+}
+
+extern "C" void native_input_probe(void) {
+    static bool started;
+    unsigned enabled = 0;
+    PE_parse_boot_argn("k70u-touch", &enabled, sizeof(enabled));
+    if (started || !enabled) return;
+    touchSinkLock = IOLockAlloc();
+    if (!touchSinkLock) return;
+    started = true;
+    native_touch_max_x = 1220;
+    native_touch_max_y = 2712;
+    if (!native_hid_input_prepare()) return;
+    native_keystore_probe();
+    start(hidThread);
+    start(touchThread);
+    start(keyThread);
+}

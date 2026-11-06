@@ -1,0 +1,27 @@
+From fa4d518c74d62f0f603df1fde1a12bc91515ecce Mon Sep 17 00:00:00 2001
+From: woaphone <69346114+woaphone@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 00:54:55 +0800
+Subject: [PATCH 16/18] rothko: give UFS and AES independent IOResources match
+ categories
+
+
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 2e3e453..5324b86 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -63,6 +63,7 @@ const char * gIOKernelConfigTables =
+ #if defined(XNU_NATIVE_AES) && XNU_NATIVE_AES
+     "   ,{"
+     "     'IOClass'         = NativeAES;"
++    "     'IOMatchCategory' = NativeAES;"
+     "     'IOProviderClass' = IOResources;"
+     "     'IOResourceMatch' = IOBSD;"
+     "     'IOProbeScore'    = 1000:32;"
+@@ -107,6 +108,7 @@ const char * gIOKernelConfigTables =
+ #if defined(XNU_NATIVE_MTKUFS) && XNU_NATIVE_MTKUFS
+     "   ,{"
+     "     'IOClass'         = NativeMtkUfs;"
++    "     'IOMatchCategory' = NativeMtkUfs;"
+     "     'IOProviderClass' = IOResources;"
+     "     'IOResourceMatch' = IOBSD;"
+     "     'IOProbeScore'    = 1000:32;"

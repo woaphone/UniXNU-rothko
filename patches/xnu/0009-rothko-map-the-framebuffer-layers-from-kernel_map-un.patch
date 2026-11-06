@@ -1,0 +1,35 @@
+From cf3fe215fe2ce78832b3dc9edc99fbc0238d464c Mon Sep 17 00:00:00 2001
+From: woaphone <woaphone@local>
+Date: Thu, 5 Nov 2026 10:15:49 +0800
+Subject: [PATCH 09/18] rothko: map the framebuffer layers from kernel_map
+ (unx2)
+
+unx1 panicked on the device right after "K70U-DSI: console": kmem_alloc of
+13541376 bytes (the L0 mapping) failed with KERN_NO_SPACE.  ml_io_map_wcomb()
+allocates KMA_NOFAIL from the small io_submap; map both 13 MB layers with
+ml_io_map_unmappable(..., VM_WIMG_WCOMB) from kernel_map like the console's
+own framebuffer mapping.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
+index 30b9d6f..0620f54 100644
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -1364,10 +1364,12 @@ k70u_display_start(void)
+ 		vm_offset_t va = ml_io_map(k70u_mutex_bank_phys[bank], PAGE_SIZE);
+ 		k70u_mutex_en[bank] = va ? (volatile uint32_t *)(va + 0x20) : NULL;
+ 	}
+-	k70u_fb_l0 = (volatile uint8_t *)ml_io_map_wcomb(K70U_FB_L0_PHYS,
+-	    round_page((vm_size_t)K70U_FB_L0_ROW * K70U_FB_HEIGHT));
+-	k70u_fb_l1 = (volatile uint8_t *)ml_io_map_wcomb(K70U_FB_L1_PHYS,
+-	    round_page((vm_size_t)K70U_FB_L1_ROW * K70U_FB_HEIGHT));
++	/* kernel_map (KMA_DATA) like the console's own mapping: the io_submap is
++	 * too small for 13 MB and its KMA_NOFAIL allocation panicked in unx1. */
++	k70u_fb_l0 = (volatile uint8_t *)ml_io_map_unmappable(K70U_FB_L0_PHYS,
++	    round_page((vm_size_t)K70U_FB_L0_ROW * K70U_FB_HEIGHT), VM_WIMG_WCOMB);
++	k70u_fb_l1 = (volatile uint8_t *)ml_io_map_unmappable(K70U_FB_L1_PHYS,
++	    round_page((vm_size_t)K70U_FB_L1_ROW * K70U_FB_HEIGHT), VM_WIMG_WCOMB);
+ 	if (!k70u_dsi_start || !k70u_mutex_en[0] || !k70u_mutex_en[1] || !k70u_mutex_en[2] ||
+ 	    !k70u_fb_l0 || !k70u_fb_l1) {
+ 		k70u_display_state = -1;

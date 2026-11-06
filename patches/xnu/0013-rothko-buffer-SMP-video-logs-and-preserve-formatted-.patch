@@ -1,0 +1,188 @@
+From 22b8f66dac0686a0bada60b8771ce14e27157bf0 Mon Sep 17 00:00:00 2001
+From: woaphone <69346114+woaphone@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 21:06:22 +0800
+Subject: [PATCH 13/18] rothko: buffer SMP video logs and preserve formatted
+ panic in RAM
+
+
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index 0ccd057..c3cf4a9 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8819,6 +8819,8 @@ process_signature(proc_t p, struct image_params *imgp)
+ 	 * approve of exec, kill and return immediately.
+ 	 */
+ 	if (imgp->ip_mac_return != 0) {
++		printf("K70U-EXEC9: MAC refused pid=%d name=%s errno=%d image-csflags=0x%x proc-csflags=0x%x\n",
++		    proc_getpid(p), p->p_name, imgp->ip_mac_return, imgp->ip_csflags, proc_getcsflags(p));
+ 		boot_progress_process_stage(proc_getpid(p),p->p_name,"exec MAC policy REFUSED");
+ 		KERNEL_DEBUG_CONSTANT(BSDDBG_CODE(DBG_BSD_PROC, BSD_PROC_EXITREASON_CREATE) | DBG_FUNC_NONE,
+ 		    proc_getpid(p), OS_REASON_EXEC, EXEC_EXIT_REASON_SECURITY_POLICY, 0, 0);
+diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
+index f1cc8f6..6e48d8e 100644
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -1350,7 +1350,8 @@ k70u_health_tick(__unused thread_call_param_t p0, __unused thread_call_param_t p
+ 		    native_mtkufs_reads, native_mtkufs_block_requests, native_mtkufs_utp_errors,
+ 		    yunluo_exec_stage);
+ 		k70u_memory_snapshot("tick");
+-		k70u_launchd_sample();
++		/* The unx4 remote-stack sampler was for the single-core launchd stall.
++		 * A task lock does not pin another CPU's kernel stack. */
+ 	}
+ 	uint64_t deadline = 0;
+ 	clock_interval_to_deadline(1, NSEC_PER_SEC, &deadline);
+diff --git a/osfmk/kern/debug.c b/osfmk/kern/debug.c
+index 61ab0e4..d11b0fe 100644
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1018,34 +1018,33 @@ register_additional_panic_data_buffer(const char *producer_name, void *buf, int
+  * according to the device's boot-args.
+  */
+ #undef panic
++extern int vsnprintf(char *, size_t, const char *, va_list);
++static void
++k70u_record_panic(const char *format, va_list args, void *caller)
++{
++	char text[1024];
++	va_list copy;
++	int prefix = snprintf(text, sizeof(text), "K70U-PANIC9: cpu=%d caller=%p ", cpu_number(), caller);
++	va_copy(copy, args);
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wformat-nonliteral"
++	vsnprintf(text + prefix, sizeof(text) - prefix - 1, format, copy);
++#pragma clang diagnostic pop
++	va_end(copy);
++	text[sizeof(text) - 2] = '\0';
++	size_t length = strlen(text);
++	text[length++] = '\n';
++	text[length] = '\0';
++	k70u_pmsg(text);
++	/* pmsg is retained RAM. Do not acquire the UFS I/O lock from panic. */
++}
++
+ void
+ panic(const char *str, ...)
+ {
+-	k70u_trace("PANIC format", str);
+ 	va_list panic_str_args;
+-
+-	/* yunluo: an OOM panic dies inside the paniclog builder before the later
+-	 * flush hook runs (expdbxnu17: text never reached the ring, no marker).
+-	 * Put the raw string into the console ring and flush to expdb here,
+-	 * before any paniclog allocation.  Weak: images without the driver skip. */
+-	{
+-		extern void yunluo_log_append(const char *c, int size) __attribute__((weak_import));
+-		extern void yunluo_panic_flush(void) __attribute__((weak_import));
+-		if (yunluo_log_append != NULL && str != NULL) {
+-			int panic_len = 0;
+-			while (panic_len < 256 && str[panic_len] != '\0') {
+-				panic_len++;
+-			}
+-			yunluo_log_append("panic-entry: ", 14);
+-			yunluo_log_append(str, panic_len);
+-			yunluo_log_append("\n", 1);
+-			if (yunluo_panic_flush != NULL) {
+-				yunluo_panic_flush();
+-			}
+-		}
+-	}
+-
+ 	va_start(panic_str_args, str);
++	k70u_record_panic(str, panic_str_args, __builtin_return_address(0));
+ 	panic_trap_to_debugger(str, &panic_str_args, 0, NULL, 0, NULL, (unsigned long)(char *)__builtin_return_address(0));
+ 	va_end(panic_str_args);
+ }
+@@ -1065,10 +1064,10 @@ panic_with_data(uuid_t uuid, void *addr, uint32_t len, const char *str, ...)
+ void
+ panic_with_options(unsigned int reason, void *ctx, uint64_t debugger_options_mask, const char *str, ...)
+ {
+-	k70u_trace("PANIC_OPTIONS format", str);
+ 	va_list panic_str_args;
+ 
+ 	va_start(panic_str_args, str);
++	k70u_record_panic(str, panic_str_args, __builtin_return_address(0));
+ 	panic_trap_to_debugger(str, &panic_str_args, reason, ctx, (debugger_options_mask & ~DEBUGGER_INTERNAL_OPTIONS_MASK),
+ 	    NULL, (unsigned long)(char *)__builtin_return_address(0));
+ 	va_end(panic_str_args);
+@@ -1393,17 +1392,8 @@ debugger_collect_diagnostics(unsigned int exception, unsigned int code, unsigned
+ 		}
+ 		paniclog_append_noflush("\n");
+ 
+-		/*
+-		 * yunluo: the panic text above went through consdebug_putc, so it is
+-		 * already in the console ring that the expdb log writer drains.  The
+-		 * writer only runs every two seconds and the other CPUs are halted by
+-		 * now, so without this the one message that matters would never reach
+-		 * the medium.  Weak: images without the driver simply skip it.
+-		 */
+-		extern void yunluo_panic_flush(void) __attribute__((weak_import));
+-		if (yunluo_panic_flush) {
+-			yunluo_panic_flush();
+-		}
++		/* The entry already preserved the formatted panic in pmsg RAM.
++		 * Other CPUs may be halted while holding the UFS lock. */
+ 	}
+ #if defined(__x86_64__)
+ 	else if (((debugger_current_op == DBOP_DEBUGGER) && debugger_is_panic)) {
+diff --git a/pexpert/arm/pe_kprintf.c b/pexpert/arm/pe_kprintf.c
+index 3c440ec..bcb1318 100644
+--- a/pexpert/arm/pe_kprintf.c
++++ b/pexpert/arm/pe_kprintf.c
+@@ -95,6 +95,29 @@ _kprintf(const char *format, ...)
+ 
+ static int      cpu_last_locked = 0;
+ 
++extern int vprintf(const char *, va_list);
++extern int __doprnt(const char *, va_list, void (*)(int, void *), void *, int, int);
++extern void yunluo_log_append(const char *, int);
++
++/* A video console must not scroll MMIO while its caller holds a kernel lock
++ * or has IRQs disabled. Those messages still reach the existing RAM log;
++ * ordinary thread output uses the same buffered path as printf. */
++struct k70u_kprintf_record {
++	char text[256];
++	int used;
++};
++
++static void
++k70u_kprintf_record_putc(int ch, void *arg)
++{
++	struct k70u_kprintf_record *record = arg;
++	record->text[record->used++] = (char)ch;
++	if (ch == '\n' || record->used == sizeof(record->text)) {
++		yunluo_log_append(record->text, record->used);
++		record->used = 0;
++	}
++}
++
+ __attribute__((noinline, not_tail_called))
+ void
+ kprintf(const char *fmt, ...)
+@@ -104,6 +127,26 @@ kprintf(const char *fmt, ...)
+ 	boolean_t       state;
+ 	void           *caller = __builtin_return_address(0);
+ 
++	if (!disable_serial_output && !disable_kprintf_output &&
++	    PE_kputc == console_write_unbuffered) {
++		va_start(listp, fmt);
++		if (oslog_is_safe()) {
++			vprintf(fmt, listp);
++		} else {
++			struct k70u_kprintf_record record = { .used = 0 };
++			va_copy(listp2, listp);
++			__doprnt(fmt, listp, k70u_kprintf_record_putc, &record, 16, TRUE);
++			if (record.used) yunluo_log_append(record.text, record.used);
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wformat-nonliteral"
++			os_log_with_args(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, fmt, listp2, caller);
++#pragma clang diagnostic pop
++			va_end(listp2);
++		}
++		va_end(listp);
++		return;
++	}
++
+ 	if (!disable_serial_output && !disable_kprintf_output) {
+ 		va_start(listp, fmt);
+ 		va_copy(listp2, listp);

@@ -1,0 +1,8 @@
+# This file is intentionally small: the actual source pins are represented by
+# patches/xnu/series, feeds.toml and the copied driver snapshots.
+[format]
+version = 1
+[xnu]
+base = "origin/rothko"
+final = "fd4edc747395525a914987bb88f063b5e549ecc7"
+series = "patches/xnu/series"

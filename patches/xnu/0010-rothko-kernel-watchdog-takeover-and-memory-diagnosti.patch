@@ -1,0 +1,239 @@
+From b58b8da580d6e73fe1dd13be19ef7330d60fe653 Mon Sep 17 00:00:00 2001
+From: woaphone <woaphone@local>
+Date: Thu, 5 Nov 2026 15:41:37 +0800
+Subject: [PATCH 10/18] rothko: kernel watchdog takeover and memory diagnostics
+ (unx3)
+
+unx2 kept running after launchd (heartbeats at 41 s and 51 s) and then reset
+silently.  The MT6989 watchdog is armed by the boot chain (MODE=0x7D: enable,
+IRQ, dual stage; LENGTH=0xC800, about 25 s per stage) and RothkoWatchdogDxe
+only feeds it from a UEFI timer event, which stops after DarwinJump.
+
+- k70u_health_start(): map the WDT at 0x1C00B000 and, while MODE.EN is set,
+  write 0x1971 to RESTART once per second from a thread call.  MODE/LENGTH are
+  left untouched; a stalled scheduler stops feeding, so a real hang still
+  resets.  Every 5 s log pings/MODE/LENGTH/STATUS and a memory snapshot.
+- k70u_memory_snapshot(): max_mem, sane_size, free/min/target, wire, active,
+  inactive, speculative, compressor pressure, gPhysBase/gPhysSize.
+- Snapshots at boot (boot_args phys/memSize), launchd main (initproc_spawned),
+  jetsam kills and an empty shared region; log the shared_region map result.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index 4b44417..09b647d 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1,3 +1,4 @@
++#include <kern/k70u_trace.h>
+ #include <kern/boot_progress.h>
+ /*
+  * Copyright (c) 2000-2016 Apple Inc. All rights reserved.
+@@ -1342,7 +1343,12 @@ sysctl_initproc_spawned(struct sysctl_oid *oidp, __unused void *arg1, __unused i
+ 		// Can only ever be set by launchd, and only once at boot
+ 		return EPERM;
+ 	}
+-	return sysctl_handle_int(oidp, &initproc_spawned, 0, req);
++	int error = sysctl_handle_int(oidp, &initproc_spawned, 0, req);
++	if (req->newptr != 0 && error == 0) {
++		printf("K70U-INIT3: launchd-main=%d\n", initproc_spawned);
++		k70u_memory_snapshot("launchd-main");
++	}
++	return error;
+ }
+ 
+ SYSCTL_PROC(_kern, OID_AUTO, initproc_spawned,
+diff --git a/bsd/kern/kern_memorystatus.c b/bsd/kern/kern_memorystatus.c
+index 63b25bb..d1aee3b 100644
+--- a/bsd/kern/kern_memorystatus.c
++++ b/bsd/kern/kern_memorystatus.c
+@@ -27,6 +27,7 @@
+  *
+  */
+ 
++#include <kern/k70u_trace.h>
+ #include <kern/sched_prim.h>
+ #include <kern/kalloc.h>
+ #include <kern/assert.h>
+@@ -1651,6 +1652,9 @@ memorystatus_do_kill(proc_t p, uint32_t cause, os_reason_t jetsam_reason, uint64
+ 	int error = 0;
+ 	__unused pid_t victim_pid = proc_getpid(p);
+ 	uint64_t footprint = get_task_phys_footprint(proc_task(p));
++	printf("K70U-JETSAM3: pid=%d name=%s cause=%u footprint=%llu free=%u\n",
++	    victim_pid, p->p_name, cause, (unsigned long long)footprint, vm_page_free_count);
++	k70u_memory_snapshot("jetsam");
+ #if (KDEBUG_LEVEL >= KDEBUG_LEVEL_STANDARD)
+ 	int32_t memstat_effectivepriority = p->p_memstat_effectivepriority;
+ #endif /* (KDEBUG_LEVEL >= KDEBUG_LEVEL_STANDARD) */
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+index b672d23..905fdf9 100644
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -37,6 +37,7 @@
+  * is included in support of clause 2.2 (b) of the Apple Public License,
+  * Version 2.0.
+  */
++#include <kern/k70u_trace.h>
+ #include <vm/vm_options.h>
+ 
+ #include <kern/ecc.h>
+@@ -2137,6 +2138,8 @@ shared_region_check_np(
+ 				    (void *)VM_KERNEL_ADDRPERM(current_thread()),
+ 				    proc_getpid(p), p->p_comm,
+ 				    (uint64_t)uap->start_address));
++				printf("K70U-SR3: check pid=%d kr=%d empty-region\n", proc_getpid(p), kr);
++				k70u_memory_snapshot("shared-region-empty");
+ 				error = ENOMEM;
+ 			} else {
+ #if __has_feature(ptrauth_calls)
+@@ -3116,6 +3119,9 @@ shared_region_map_and_slide_2_np(
+ 
+ 	kr = _shared_region_map_and_slide(p, files_count, shared_files, mappings_count, mappings);
+ done:
++	/* [k70u unx3] did dyld map the shared cache? */
++	printf("K70U-SR3: map pid=%d files=%u mappings=%u kr=%d\n",
++	    proc_getpid(p), files_count, mappings_count, kr);
+ 	kfree_data(shared_files, files_count * sizeof(shared_files[0]));
+ 	kfree_data(mappings, mappings_count * sizeof(mappings[0]));
+ 	return kr;
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index c66441d..56ce14a 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -784,6 +784,13 @@ arm_init(
+ 	// every stage from here on is recorded where Android can read it back.
+ 	k70u_beacon_on();
+ 	k70u_beacon("K70U-KERNEL: arm_vm_init ok\n");
++	{
++		char line[256];
++		snprintf(line, sizeof(line), "K70U-MEM3: boot phys=0x%llx bytes=%llu actual=%llu kernel-top=0x%llx\n",
++		    (unsigned long long)args->physBase, (unsigned long long)args->memSize,
++		    (unsigned long long)args->memSizeActual, (unsigned long long)args->topOfKernelData);
++		k70u_beacon(line);
++	}
+ 
+ 	if (debug_boot_arg) {
+ 		patch_low_glo();
+diff --git a/osfmk/console/video_console.c b/osfmk/console/video_console.c
+index 0620f54..db57132 100644
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -99,6 +99,8 @@
+ 
+ #include <vm/pmap.h>
+ #include <vm/vm_kern.h>
++#include <vm/vm_page.h>
++#include <vm/vm_pageout.h>
+ #include <machine/machine_cpu.h>
+ 
+ #include <pexpert/pexpert.h>
+@@ -1281,6 +1283,75 @@ static uint64_t k70u_display_pushes;
+ static uint64_t k70u_display_hb_last;
+ volatile uint32_t k70u_display_busy;
+ 
++/* [rothko unx3] Kernel owns the inherited MT6989 watchdog after DarwinJump.
++ * This callout is independent of DSI; retain MODE/LENGTH and only ping an
++ * already enabled watchdog. A stalled scheduler stops feeding naturally. */
++#define K70U_WDT3_PHYS 0x1C00B000ULL
++static volatile uint32_t *k70u_wdt3;
++static thread_call_data_t k70u_health_call;
++static uint64_t k70u_wdt3_pings;
++static uint64_t k70u_health_last;
++static int k70u_health_started;
++
++void
++k70u_memory_snapshot(const char *stage)
++{
++	char line[384];
++	snprintf(line, sizeof(line),
++	    "K70U-MEM3: %s max=%llu sane=%llu page=%u free=%u min=%u target=%u wire=%u active=%u inactive=%u spec=%u compressor-pressure=%u phys-base=0x%llx phys-size=0x%llx\n",
++	    stage, (unsigned long long)max_mem, (unsigned long long)sane_size,
++	    (unsigned int)PAGE_SIZE, vm_page_free_count, vm_page_free_min,
++	    vm_page_free_target, vm_page_wire_count, vm_page_active_count,
++	    vm_page_inactive_count, vm_page_speculative_count,
++	    vm_pageout_state.vm_memory_pressure,
++	    (unsigned long long)gPhysBase, (unsigned long long)gPhysSize);
++	k70u_pmsg(line);
++}
++
++static void
++k70u_health_tick(__unused thread_call_param_t p0, __unused thread_call_param_t p1)
++{
++	if (k70u_wdt3 && (k70u_wdt3[0] & 1U)) {
++		k70u_wdt3[2] = 0x1971U;
++		__asm__ volatile ("dsb sy" ::: "memory");
++		k70u_wdt3_pings++;
++	}
++	uint64_t now = mach_absolute_time(), ns = 0, interval = 0;
++	nanoseconds_to_absolutetime(5ULL * NSEC_PER_SEC, &interval);
++	if (now - k70u_health_last >= interval) {
++		char line[192];
++		k70u_health_last = now;
++		absolutetime_to_nanoseconds(now, &ns);
++		snprintf(line, sizeof(line), "K70U-WDT3: t=%llus pings=%llu mode=0x%x length=0x%x status=0x%x irq=%llu\n",
++		    (unsigned long long)(ns / NSEC_PER_SEC), (unsigned long long)k70u_wdt3_pings,
++		    k70u_wdt3 ? k70u_wdt3[0] : 0, k70u_wdt3 ? k70u_wdt3[1] : 0,
++		    k70u_wdt3 ? k70u_wdt3[3] : 0, (unsigned long long)k70u_irq_count);
++		k70u_pmsg(line);
++		k70u_memory_snapshot("tick");
++	}
++	uint64_t deadline = 0;
++	clock_interval_to_deadline(1, NSEC_PER_SEC, &deadline);
++	thread_call_enter_delayed(&k70u_health_call, deadline);
++}
++
++void
++k70u_health_start(void)
++{
++	if (k70u_health_started) { return; }
++	k70u_health_started = 1;
++	k70u_wdt3 = (volatile uint32_t *)ml_io_map(K70U_WDT3_PHYS, PAGE_SIZE);
++	char line[192];
++	snprintf(line, sizeof(line), "K70U-WDT3: takeover base=0x%llx mapped=%u mode=0x%x length=0x%x status=0x%x\n",
++	    (unsigned long long)K70U_WDT3_PHYS, k70u_wdt3 != NULL,
++	    k70u_wdt3 ? k70u_wdt3[0] : 0, k70u_wdt3 ? k70u_wdt3[1] : 0,
++	    k70u_wdt3 ? k70u_wdt3[3] : 0);
++	k70u_pmsg(line);
++	k70u_memory_snapshot("health-start");
++	thread_call_setup(&k70u_health_call, k70u_health_tick, NULL);
++	k70u_health_last = mach_absolute_time();
++	k70u_health_tick(NULL, NULL);
++}
++
+ static void
+ k70u_display_push(void)
+ {
+diff --git a/osfmk/kern/k70u_trace.h b/osfmk/kern/k70u_trace.h
+index ca54dd0..92d79b6 100644
+--- a/osfmk/kern/k70u_trace.h
++++ b/osfmk/kern/k70u_trace.h
+@@ -12,6 +12,8 @@ void k70u_startup_event(const char *, uint64_t, uint64_t, uint64_t, uint64_t);
+ void k70u_irq_hex(const char *, uint64_t);
+ void k70u_irq_state(const char *);
+ void k70u_display_start(void);
++void k70u_health_start(void);
++void k70u_memory_snapshot(const char *);
+ extern volatile uint64_t k70u_irq_count;
+ #else
+ #define k70u_pmsg(s) ((void)0)
+@@ -21,6 +23,8 @@ extern volatile uint64_t k70u_irq_count;
+ #define k70u_irq_hex(a,b) ((void)0)
+ #define k70u_irq_state(a) ((void)0)
+ #define k70u_display_start() ((void)0)
++#define k70u_health_start() ((void)0)
++#define k70u_memory_snapshot(a) ((void)0)
+ #endif
+ #ifdef __cplusplus
+ }
+diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+index 045bee8..b810db0 100644
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -781,6 +781,7 @@ kernel_bootstrap_thread(void)
+ 	initialize_screen(NULL, kPEAcquireScreen);
+ 	k70u_trace("bootstrap-thread-call", "initialize_screen returned");
+ 	/* [k70u unx1] command-mode DSI: start pushing console frames to the panel */
++	k70u_health_start();
+ 	k70u_display_start();
+ 
+ 	/*

@@ -1,0 +1,5 @@
+# Machine-local source overrides. Copy to local.toml and edit paths as needed.
+[paths]
+uefi = "../uefi-rothko"
+base = "../UniXNU"
+ipsw = ""
