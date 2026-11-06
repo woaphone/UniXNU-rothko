@@ -3,6 +3,12 @@
 Device repository for the Xiaomi Redmi K70 Ultra (`rothko`, MediaTek MT6989 / Dimensity 9300).
 It follows UniXNU's [Port a device](https://unixnu.com/porting/) and [device repository](https://unixnu.com/porting/device-repository) format 2. The public repository contains the board contract, XNU patch series, board drivers, package kit and verification record. UEFI remains in the separate [`ChallengeThePeak/Silicium-Rothko`](https://github.com/ChallengeThePeak/Silicium-Rothko) repository and is selected through `board.toml`.
 
+The XNU source is maintained separately in
+[`woaphone/xnu-mtk`](https://github.com/woaphone/xnu-mtk). The K70U branch is
+`rothko` at `fd4edc747395525a914987bb88f063b5e549ecc7`; this device repository
+stores the ordered 18-patch series from immutable base
+`53bc420e5acda41c1689f6690a85841393a347cf` for reproducible builds.
+
 The port targets the iPad7,1 / iPadOS 17.7.11 / build 21H461 donor used by the established UniXNU sheng/yunluo ports. The board inventory records eight CPUs, a 13 MHz timer, MT6989 GICv3, UFS4 storage, a 1220x2712 panel and Goodix Berlin9916K touch hardware.
 
 ## Repository map
@@ -15,6 +21,7 @@ The port targets the iPad7,1 / iPadOS 17.7.11 / build 21H461 donor used by the e
 - `drivers/` and `kits/rothko/` — board and device implementations, including MT6989 platform/CPU, readonly UFS/Data, display, HID, Goodix and fixed FDVFS request code.
 - `package/` and `scripts/package.sh` — board package and the official `unixnu release` wrapper.
 - `docs/verification.md` — compact evidence boundary and reproducibility record.
+- `unixnu.lock` — pins the XNU repository, stable branch, immutable patch base and final revision.
 
 Large IPSW, firmware, logs, images and generated output stay outside Git. Their hashes and locations belong in the parent K70U bring-up reports or the local build record.
 
@@ -72,6 +79,7 @@ See [`porting.toml`](porting.toml) for the machine-readable record and [`docs/ve
 - [Port a device](https://unixnu.com/porting/)
 - [Device repository requirements](https://unixnu.com/porting/device-repository)
 - [Porting record format](https://unixnu.com/porting/records)
+- [MediaTek XNU source repository](https://github.com/woaphone/xnu-mtk)
 - [UFS adaptation](https://unixnu.com/porting/ufs)
 - [Bring-up and log capture](https://unixnu.com/porting/bring-up)
 

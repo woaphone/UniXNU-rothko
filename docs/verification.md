@@ -6,7 +6,10 @@ This file is the compact, repository-relative evidence index for `porting.toml`.
 
 - Board: Xiaomi Redmi K70 Ultra (`rothko`), MediaTek MT6989 / Dimensity 9300.
 - Donor: iPad7,1 / iPadOS 17.7.11 / build 21H461.
-- XNU patch result: 18 ordered patches apply to `origin/rothko` and produce `fd4edc747395525a914987bb88f063b5e549ecc7`.
+- XNU source: `git@github.com:woaphone/xnu-mtk.git`, stable branch `rothko`.
+- XNU patch result: 18 ordered patches apply to immutable base
+  `53bc420e5acda41c1689f6690a85841393a347cf` and produce
+  `fd4edc747395525a914987bb88f063b5e549ecc7`.
 - Kernelcache SHA-256: `f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7`.
 - Build route: official XNU link, XnuPrelink, UEFI `DeviceBuild.py`/`stuart`, payload and `boot_v4` packaging. The old Clang 18 compatibility route was used; no new LLVM toolchain is claimed.
 - Repository record check: `python3 scripts/porting-record.py check --device ../UniXNU-rothko` reports 14 structured areas checked.
