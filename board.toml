@@ -67,7 +67,7 @@ extra_args = []
 
 [firmware]
 # UEFI is a separate repository; this device repository only records the contract.
-external_repository = "../uefi-rothko"
+external_repository = "git@github.com:woaphone/uefi-rothko.git"
 config = "rothko"
 dsc = "Platforms/Xiaomi/rothkoPkg/rothko.dsc"
 fd = "Build/rothkoPkg/{target}_CLANGDWARF/FV/SILICIUM_UEFI.fd"
@@ -120,3 +120,4 @@ psci_method = "smc"
 packed_data_ramdisk = true
 ipad_identity = true
 unique_chip_id = "required"
+
