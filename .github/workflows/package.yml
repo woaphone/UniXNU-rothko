@@ -32,7 +32,7 @@ jobs:
           submodules: recursive
       - uses: actions/checkout@v4
         with:
-          repository: challengethepeek/uefi-rothko
+          repository: ChallengeThePeak/Silicium-Rothko
           token: ${{ secrets.UEFI_REPO_TOKEN }}
           path: uefi-rothko
           submodules: recursive

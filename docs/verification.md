@@ -8,7 +8,7 @@ This file is the compact, repository-relative evidence index for `porting.toml`.
 - Donor: iPad7,1 / iPadOS 17.7.11 / build 21H461.
 - XNU patch result: 18 ordered patches apply to `origin/rothko` and produce `fd4edc747395525a914987bb88f063b5e549ecc7`.
 - Kernelcache SHA-256: `f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7`.
-- Build route: official XNU link, XnuPrelink, private UEFI `DeviceBuild.py`/`stuart`, payload and `boot_v4` packaging. The old Clang 18 compatibility route was used; no new LLVM toolchain is claimed.
+- Build route: official XNU link, XnuPrelink, UEFI `DeviceBuild.py`/`stuart`, payload and `boot_v4` packaging. The old Clang 18 compatibility route was used; no new LLVM toolchain is claimed.
 - Repository record check: `python3 scripts/porting-record.py check --device ../UniXNU-rothko` reports 14 structured areas checked.
 
 ## Device observations
@@ -17,7 +17,7 @@ This file is the compact, repository-relative evidence index for `porting.toml`.
 | --- | --- | --- |
 | XNU entry | K1-K4, MMU and serial initialization observed | Does not prove a complete userland boot by itself |
 | CPUs | Eight-core startup, timer and IPI activity observed | Does not prove dynamic frequency scaling |
-| Storage | UFS HS-G5 dual-lane/LU2 reads and root matching observed in the unx16 follow-up evidence | Does not prove persistent writes or current private UEFI safety |
+| Storage | UFS HS-G5 dual-lane/LU2 reads and root matching observed in the unx16 follow-up evidence | Does not prove persistent writes or current UEFI safety |
 | Display | Activation page observed on the unx7 baseline with CMD active-push path | Long-term desktop stability and wake-after-lock remain open |
 | Input | Goodix reports and HID queue movement observed | UI touch interaction and key wake remain unverified |
 | Memory | Corrected 4 KiB bootstrap/page-table path and seed import reached later XNU stages | Long-duration pressure comparison is incomplete |
@@ -37,7 +37,7 @@ python3 scripts/porting-record.py check --device ../UniXNU-rothko
 scripts/package.sh --check --os 17 --uefi ../uefi-rothko
 ```
 
-The package command needs the private `challengethepeek/uefi-rothko` checkout and the local IPSW/firmware inputs. No device flashing, erase or recovery operation is part of this repository record.
+The package command needs the `ChallengeThePeak/Silicium-Rothko` checkout and the local IPSW/firmware inputs. No device flashing, erase or recovery operation is part of this repository record.
 
 ## Evidence interpretation
 

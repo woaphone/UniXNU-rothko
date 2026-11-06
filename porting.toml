@@ -28,12 +28,12 @@ id = "firmware"
 status = "host-verified"
 components = ["DarwinBoot"]
 paths = ["board.toml", "proprietary-files.txt", "package/**", "local.toml.example"]
-inputs = ["Separate private challengethepeek/uefi-rothko firmware repository, rothko DSC/FD paths, DarwinBoot handoff, GOP framebuffer and 56 MiB payload FAT volume.", "UEFI device reset, PHY, refclk and BlockIO state are treated as firmware-owned and audited separately from XNU."]
-configuration = ["board.toml records the private UEFI checkout, rothko.dsc, SILICIUM_UEFI.fd path and firmware defines.", "The XNU payload uses firmware loader handoff, 8 GiB owned-memory intent and PSCI SMC."]
-procedure = ["Build UEFI through the official DeviceBuild.py and stuart path in the private firmware checkout.", "Build the payload and boot image with the official UniXNU tools after the firmware FD is available."]
-findings = ["Official UEFI builds completed offline and the device reached the Darwin handoff; UFS link/DP success and later NOP/descriptor issues were observed in separate captures.", "The unx17 BROM incident is recorded as unresolved; this device repository does not claim that LUN0 was written or that the private firmware is safe for another hardware run."]
-completion = ["A reviewed private firmware revision builds, enters DarwinBoot, publishes the documented framebuffer and preserves the handoff memory contract."]
-limits = ["The private UEFI source and current unx18 safety candidate are intentionally outside this public repository; current firmware runtime closure and the BROM cause remain open."]
+inputs = ["Separate ChallengeThePeak/Silicium-Rothko firmware repository, rothko DSC/FD paths, DarwinBoot handoff, GOP framebuffer and 56 MiB payload FAT volume.", "UEFI device reset, PHY, refclk and BlockIO state are treated as firmware-owned and audited separately from XNU."]
+configuration = ["board.toml records the UEFI checkout, rothko.dsc, SILICIUM_UEFI.fd path and firmware defines.", "The XNU payload uses firmware loader handoff, 8 GiB owned-memory intent and PSCI SMC."]
+procedure = ["Build UEFI through the official DeviceBuild.py and stuart path in the UEFI checkout.", "Build the payload and boot image with the official UniXNU tools after the firmware FD is available."]
+findings = ["Official UEFI builds completed offline and the device reached the Darwin handoff; UFS link/DP success and later NOP/descriptor issues were observed in separate captures.", "The unx17 BROM incident is recorded as unresolved; this device repository does not claim that LUN0 was written or that the current UEFI is safe for another hardware run."]
+completion = ["A reviewed firmware revision builds, enters DarwinBoot, publishes the documented framebuffer and preserves the handoff memory contract."]
+limits = ["The UEFI source and current unx18 safety candidate live in the separate ChallengeThePeak/Silicium-Rothko repository; current firmware runtime closure and the BROM cause remain open."]
 next_action = ["Publish a reviewed UEFI revision or link a private CI result before marking firmware device-verified."]
 evidence = [
   { kind = "source", reference = "board.toml", result = "Private firmware repository, DSC, FD and package contract are recorded." },
@@ -84,7 +84,7 @@ configuration = ["board.toml records the unixnu GPT LBA range, 4096-byte blocks,
 procedure = ["Build the UFS/AES/RamBlock archives, prelink the kernel and capture link, lane, capacity, GPT, root-match and read markers.", "Keep all persistence writes inside the declared unixnu Data/Log windows and review UEFI writes independently."]
 findings = ["Device evidence showed XNU UFS HS-G5 dual-lane reads, LU2 activity, root matching and sustained reads.", "The later UEFI/BROM incident is not attributed to a proven LUN0 write; the firmware-side refclk/reset/PHY audit remains separate from this XNU evidence."]
 completion = ["Host/link/read/root/persistence boundaries match the board inventory and no write path escapes the declared unixnu windows."]
-limits = ["Long-term UFS persistence and the BROM cause are unresolved; this record does not claim that the private UEFI is safe to run again."]
+limits = ["Long-term UFS persistence and the BROM cause are unresolved; this record does not claim that the UEFI is safe to run again."]
 next_action = ["After device recovery, run a read-first UFS capture with the reviewed UEFI safety revision and record the exact firmware and image hashes."]
 evidence = [
   { kind = "source", reference = "drivers/NativeMtkUfs/NativeMtkUfs.cpp", result = "MT6989 UFS host and readonly media implementation are present." },
@@ -208,8 +208,8 @@ configuration = ["board.toml records the kernelcache hash, prelink roots/slide, 
 procedure = ["Run the official kernel link, XnuPrelink, UEFI build, payload and boot_v4 packer in order.", "Record every output hash and keep generated images outside the Git repository."]
 findings = ["The official offline build chain completed for the recorded unx15/unx16/unx17/unx18 candidates; the final public device repository intentionally contains no firmware or image binaries."]
 completion = ["Kernel and prelink succeed, payload contains declared inputs and boot images match the firmware's format and size constraints."]
-limits = ["The private UEFI input and latest candidate images are not reproducible from the public repository alone until the private firmware checkout is available."]
-next_action = ["Run scripts/package.sh --check --os 17 from a clean checkout with the private UEFI secret and publish the CI result."]
+limits = ["The UEFI input is a separate repository and its current large image artifacts are not stored in this device repository."]
+next_action = ["Run scripts/package.sh --check --os 17 from a clean checkout with the UEFI input and publish the CI result."]
 evidence = [
   { kind = "source", reference = "scripts/package.sh", result = "The repository carries the official packaging wrapper." },
   { kind = "host", reference = "docs/verification.md", command = "kernel link; XnuPrelink; DeviceBuild/stuart; payload; boot_v4", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The offline official build and packaging chain completed for the bring-up candidates." },
@@ -225,7 +225,7 @@ configuration = ["The payload enables serial/pmsg and the board keeps the logs n
 procedure = ["Capture pstore/pmsg and firmware logs after each boot attempt; record image/source hashes and the last completed checkpoint.", "Run the official porting-record checker before publishing the device revision."]
 findings = ["The record distinguishes observed XNU entry, SMP, HID, UFS/root and activation-page milestones from unresolved UI wake, peripheral and BROM questions."]
 completion = ["Each claimed milestone has a reproducible command, matching source/image revision and an accessible result."]
-limits = ["The public repository does not contain the large proprietary logs or private UEFI images; references point to the compact verification record and parent bring-up reports."]
+limits = ["The public repository does not contain the large proprietary logs or generated UEFI images; references point to the compact verification record and parent bring-up reports."]
 next_action = ["Publish a compact per-run evidence manifest alongside the next recovered-device test."]
 evidence = [
   { kind = "source", reference = "docs/verification.md", result = "The compact verification record defines the evidence boundary." },

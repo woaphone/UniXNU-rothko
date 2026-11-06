@@ -14,7 +14,7 @@ for source work, `host-verified` for reproducible host results and
 `device-verified` only when a captured device result identifies the image and
 revision. Keep unresolved limits and the next measurement in the same area.
 
-Keep UEFI changes in the separate private `challengethepeek/uefi-rothko`
+Keep UEFI changes in the separate `ChallengeThePeak/Silicium-Rothko`
 repository. Device-specific XNU changes belong in `patches/xnu` and must be
 listed in `patches/xnu/series` in application order. Do not copy IPSW, firmware,
 userdata images, kernelcache binaries, pstore logs or generated images into this

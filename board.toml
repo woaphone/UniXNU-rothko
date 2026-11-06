@@ -78,7 +78,7 @@ roots = [
 extra_args = []
 
 [firmware]
-external_repository = "git@github.com:challengethepeek/uefi-rothko.git"
+external_repository = "git@github.com:ChallengeThePeak/Silicium-Rothko.git"
 config = "rothko"
 dsc = "Platforms/Xiaomi/rothkoPkg/rothko.dsc"
 fd = "Build/rothkoPkg/{target}_CLANGDWARF/FV/SILICIUM_UEFI.fd"
