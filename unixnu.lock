@@ -2,6 +2,8 @@
 # patches/xnu/series, feeds.toml and the copied driver snapshots.
 [format]
 version = 1
+[source."mt6989"]
+commit = "1e38ac7b45376680024d5da1217a9d6d7d463215"
 [xnu]
 repository = "git@github.com:woaphone/xnu-mtk.git"
 branch = "rothko"

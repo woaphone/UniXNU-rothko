@@ -1,5 +1,7 @@
 /dts-v1/;
 
+/include/ "mt6989.dtsi"
+
 /*
  * UniXNU board description for Redmi K70 Ultra (rothko / MT6989).
  *
@@ -17,14 +19,11 @@
     };
 
     cpus {
-        timebase-frequency = <13000000>;
         cpu-count = <8>;
     };
 
     soc {
         compatible = "mediatek,mt6989";
-        gic = <0x0 0x0c000000 0x0 0x00040000>;
-        gicr = <0x0 0x0c400000 0x0 0x00200000>;
         ufs = <0x0 0x112b0000 0x0 0x00002a00>;
         display = <1220 2712 32>;
         touch-spi = <6>;

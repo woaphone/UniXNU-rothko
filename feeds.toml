@@ -1,13 +1,8 @@
-# Device-specific source feeds. The MT6989 platform source is currently kept in
-# this device repository; split it into a reusable UniXNU-mt6989-common repository
-# before claiming a public SoC feed.
-
 [[source]]
-name = "mt6989-local"
+name = "mt6989"
 kind = "soc"
-path = "drivers/ArmDTPlatform"
-commit = "417ff95d6a6e8607ddea9309ec45c3bfd4a67c60"
-local = "drivers/ArmDTPlatform"
+git = "https://github.com/woaphone/UniXNU-mt6989-common"
+commit = "1e38ac7b45376680024d5da1217a9d6d7d463215"
 
 [[source]]
 name = "NativeMtkUfs"

@@ -14,7 +14,7 @@ The port targets the iPad7,1 / iPadOS 17.7.11 / build 21H461 donor used by the e
 ## Repository map
 
 - `board.toml` — format 2 board identity, IPSW hashes, GPT/userdata windows, XNU/prelink, external UEFI contract, payload and ADT inputs.
-- `feeds.toml` — current device-local MT6989 source and UFS source pins. A reusable public MT6989 common repository is still pending.
+- `feeds.toml` — published MT6989 common SoC source, local UFS driver and xnu-mtk source pins.
 - `porting.toml` — official schema version 1 record with configuration, firmware, CPU, memory, storage, display, input, GPU, network, cellular, audio, power, packaging and diagnostics areas.
 - `configs/rothko_defconfig` and `patches/xnu/series` — selected kernel configuration and ordered XNU patches.
 - `dts/rothko.dts` — reviewable board hardware description used by the ADT generator.
@@ -30,7 +30,7 @@ Large IPSW, firmware, logs, images and generated output stay outside Git. Their 
 The repository follows the eight official stages:
 
 1. **Collect inputs.** Hardware addresses, partition geometry, panel/touch resources, CPU topology and firmware facts are recorded in `dts/rothko.dts`, `board.toml` and `porting.toml`.
-2. **Choose shared support.** The iPadOS profile, ARM64/XNU patch base and reusable catalog components are selected in `board.toml`; board-local MT6989 sources remain explicit in `feeds.toml`.
+2. **Choose shared support.** The iPadOS profile, ARM64/XNU patch base, `UniXNU-mt6989-common` and reusable catalog components are selected in `board.toml`; the board DTS keeps only device-specific hardware.
 3. **Create the device repository.** The format 2 files, device kit, package, patch series, workflows and local override example are tracked here. `example = false` is set.
 4. **Resolve and inspect.** Run the commands below from the main UniXNU checkout and review source revisions, overrides and patch order.
 5. **Prepare hardware and firmware.** The DTS feeds the XNU ADT. The UEFI repository supplies DarwinBoot, GOP, FAT initrd support and the boot FD.
@@ -50,7 +50,7 @@ From the main UniXNU checkout:
 python3 scripts/porting-record.py check --device ../UniXNU-rothko
 ```
 
-The official checker currently reports 14 structured areas, including the additional cellular scope record, and it passes. The full resolver still stops at the documented `mt6989-local` feed because the reusable MT6989 `soc.toml` repository has not been split out; this is an explicit configuration follow-up, not a hidden build claim.
+The official checker currently reports 14 structured areas, including the additional cellular scope record, and it passes. Shared CPU, PSCI, GICv3 and timer resources now resolve from `woaphone/UniXNU-mt6989-common`.
 
 ## Build and package
 

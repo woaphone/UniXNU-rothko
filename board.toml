@@ -3,7 +3,7 @@ schema_version = 2
 [board]
 name = "rothko"
 soc = "MT6989"
-soc_source = "mt6989-local"
+soc_source = "mt6989"
 os_profile = "ipados-17.7.11-21H461"
 description = "Xiaomi Redmi K70 Ultra (rothko, MediaTek Dimensity 9300)"
 kit = "rothko"
@@ -14,7 +14,7 @@ include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "RamBlock", "AppleKeyStoreS
 
 [device_tree]
 source = "device:dts/rothko.dts"
-include_dirs = []
+include_dirs = ["soc:dts"]
 
 [ipsw]
 url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
@@ -41,7 +41,7 @@ windows = [
 
 [kernel]
 defconfig = "rothko_defconfig"
-config_fragments = []
+config_fragments = ["arch:configs/common.config", "soc:configs/mt6989.config", "os:configs/ipados.config"]
 patch_series = ["device:patches/xnu/series"]
 archives = [
   "build-corecrypto-14.py",
