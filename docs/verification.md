@@ -11,9 +11,9 @@
 
 - Early XNU K1-K4 and MMU/serial initialization: observed.
 - Eight CPU startup, timer and IPI activity: observed.
-- Goodix touch reports and key event path: observed in kernel logs.
-- UFS HS-G5 dual-lane reads and root matching: observed in unx16/unx17 evidence.
-- Activation page: observed on the unx7 baseline.
+- Goodix sensor reports and HID queue activity: observed in kernel logs; UI touch interaction and wake-key behavior remain unverified.
+- UFS HS-G5 dual-lane reads and root matching: observed in the unx16 follow-up evidence; the later unx17/BROM incident remains a separate unresolved firmware-state event.
+- Activation page: observed on the unx7 baseline; this does not prove stable desktop, touch or wake behavior.
 - BROM incident after the earlier UEFI candidate: not attributed to a proven LUN0 write; no recovery operation is part of this repository.
 
 ## Separate UEFI
@@ -21,3 +21,4 @@
 The current UEFI candidate and its UFS refclk safety audit are in the sibling
 uefi-rothko workspace/repository. This repository only records the firmware
 contract and does not vendor the UEFI tree.
+

@@ -33,8 +33,9 @@ The current offline build used the same official kernel, prelink, payload and bo
 
 ## Verification state
 
-The tested non-UEFI path has evidence for early XNU entry, eight-core startup, CMD display presentation, Goodix input, UFS LU2 reads, root matching and activation-page reachability. CPU FDVFS requests are integrated as a fixed boot policy. Wi-Fi, Bluetooth, battery service and dynamic CPU governor remain pending. The earlier BROM incident is recorded as unresolved and is not hidden by this repository.
+The tested non-UEFI path has evidence for early XNU entry, eight-core startup, CMD display presentation, UFS LU2 reads, root matching and activation-page reachability. Kernel logs show Goodix sensor reports and HID queue activity, but UI touch interaction and key-based wake are not closed. CPU FDVFS requests are integrated as a fixed boot policy, not a runtime governor. Wi-Fi, Bluetooth and battery service remain pending. The earlier BROM incident is recorded as unresolved and is not hidden by this repository.
 
 ## License
 
 BSD-2-Clause-Patent. See `package/LICENSE`.
+

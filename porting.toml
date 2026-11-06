@@ -16,13 +16,13 @@ notes = "UFS LU2 read path, unixnu userdata windows and Data seed integration; h
 level = "device"
 status = "implemented"
 sources = ["drivers/NativeMobileDisplay", "kits/rothko"]
-notes = "GOP/CMD active presentation and 1220x2712 panel geometry."
+notes = "GOP/CMD active presentation and 1220x2712 panel geometry reached the activation page; long-term userland/display stability remains open."
 
 [areas.input]
 level = "device"
 status = "implemented"
 sources = ["drivers/NativeHidInput", "kits/rothko"]
-notes = "Goodix Berlin9916K touch and board key routes."
+notes = "Goodix Berlin9916K reports and HID queue activity are observed; UI touch interaction and key wake remain unverified."
 
 [areas.power]
 level = "source"
@@ -47,4 +47,5 @@ level = "device"
 status = "partial"
 sources = ["docs/verification.md"]
 notes = "Activation UI, XNU entry, SMP, HID and UFS read evidence recorded; BROM incident remains unresolved."
+
 
