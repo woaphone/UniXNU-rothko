@@ -39,7 +39,7 @@ notes = "Wi-Fi and Bluetooth are documented separately and not claimed as implem
 [areas.firmware]
 level = "external"
 status = "separate-repository"
-sources = ["../uefi-rothko"]
+sources = ["git@github.com:challengethepeek/uefi-rothko.git"]
 notes = "UEFI is intentionally outside this repository."
 
 [areas.verification]
@@ -47,3 +47,4 @@ level = "device"
 status = "partial"
 sources = ["docs/verification.md"]
 notes = "Activation UI, XNU entry, SMP, HID and UFS read evidence recorded; BROM incident remains unresolved."
+
