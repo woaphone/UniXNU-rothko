@@ -1,0 +1,51 @@
+name: package
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "OS profile of the images"
+        type: choice
+        options: ["17", "26", "27"]
+        default: "17"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          repository: UniXNU/UniXNU
+          path: UniXNU
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          repository: challengethepeek/uefi-rothko
+          token: ${{ secrets.UEFI_REPO_TOKEN }}
+          path: uefi-rothko
+          submodules: recursive
+      - name: tools
+        run: brew install dtc llvm lld cmake mtools blacktop/tap/ipsw
+      - name: platform seed
+        env:
+          seed: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
+        run: |
+          [[ "$seed" =~ ^[0-9a-fA-F]{8}$ ]]
+      - name: package
+        working-directory: device
+        env:
+          UNIXNU_UNIQUE_CHIP_ID: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: scripts/package.sh --os "${{ inputs.os }}" --uefi ../uefi-rothko

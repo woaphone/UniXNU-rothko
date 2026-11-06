@@ -1,28 +1,10 @@
-name: rothko-porting-record
+name: Device documentation
 
-on:
-  push:
-    paths:
-      - "board.toml"
-      - "porting.toml"
-      - "patches/**"
-      - "configs/**"
-      - "dts/**"
-      - "drivers/**"
-      - "kits/**"
-      - "package/**"
-      - "scripts/**"
+on: [push, pull_request]
+
+permissions:
+  contents: read
 
 jobs:
-  record:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check required files
-        run: |
-          test -s board.toml
-          test -s porting.toml
-          test -s configs/rothko_defconfig
-          test -s patches/xnu/series
-          test -s dts/rothko.dts
-          test -s package/unixnu.toml
+  porting-record:
+    uses: UniXNU/UniXNU/.github/workflows/porting-record.yml@main

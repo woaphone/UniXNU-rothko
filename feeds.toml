@@ -1,16 +1,17 @@
-# Device-specific source feeds are pinned in the repository tree for the offline
-# port. Replace local paths with public Git URLs before publication.
+# Device-specific source feeds. The MT6989 platform source is currently kept in
+# this device repository; split it into a reusable UniXNU-mt6989-common repository
+# before claiming a public SoC feed.
 
 [[source]]
-name = "ArmDTPlatform"
-kind = "driver"
+name = "mt6989-local"
+kind = "soc"
 path = "drivers/ArmDTPlatform"
 commit = "417ff95d6a6e8607ddea9309ec45c3bfd4a67c60"
-local = "../UniXNU-rothko/drivers/ArmDTPlatform"
+local = "drivers/ArmDTPlatform"
 
 [[source]]
 name = "NativeMtkUfs"
 kind = "driver"
 path = "drivers/NativeMtkUfs"
 commit = "device-tree-mt6989"
-local = "../UniXNU-rothko/drivers/NativeMtkUfs"
+local = "drivers/NativeMtkUfs"

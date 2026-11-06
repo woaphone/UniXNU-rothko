@@ -1,51 +1,235 @@
-format = 2
+schema_version = 1
 
-[areas.platform]
-level = "source"
+[device]
+name = "rothko"
+soc = "MT6989"
+os_profile = "ipados-17.7.11-21H461"
+summary = "Offline and device evidence record for the Xiaomi Redmi K70 Ultra UniXNU port. The record separates source implementation, host builds and the milestones observed on the physical device."
+
+[[area]]
+id = "configuration"
 status = "implemented"
-sources = ["drivers/ArmDTPlatform", "drivers/ArmCpu", "patches/xnu/series"]
-notes = "MT6989 DT platform, GICv3, PSCI SMC and eight-core handoff."
+components = ["ArmDTPlatform", "ArmCpu", "XnuPrelink"]
+paths = ["board.toml", "feeds.toml", "configs/**", "dts/**", "patches/xnu/series", "unixnu.lock"]
+inputs = ["MT6989 / Dimensity 9300 board identity, eight CPUs, 13 MHz timer, GICv3 and the iPadOS 17.7.11 / 21H461 donor profile.", "Stock effective DT, board partition geometry and the reviewed component and patch inputs."]
+configuration = ["board.toml selects the rothko board, mt6989-local source, ipados-17.7.11-21H461 profile and device:dts/rothko.dts.", "rothko_defconfig and patches/xnu/series select the kernel configuration and ordered XNU changes."]
+procedure = ["Run unixnu defconfig rothko_defconfig -D ../UniXNU-rothko.", "Run unixnu fetch, unixnu status --json and unixnu tree, then run scripts/porting-record.py check."]
+findings = ["The device repository is a format 2 board repository with a separate firmware repository; the MT6989 platform source is still device-local and is recorded as mt6989-local.", "The 18-patch XNU series applies cleanly to the rothko XNU base through fd4edc747395525a914987bb88f063b5e549ecc7."]
+completion = ["The board identity, OS profile, source pins, defconfig, DTS entry point and patch order resolve without placeholders."]
+limits = ["A reusable public UniXNU-mt6989-common repository has not been split out yet; feeds.toml records the current local source honestly."]
+next_action = ["Extract the common MT6989 platform source into a separately pinned repository before claiming a public SoC feed."]
+evidence = [
+  { kind = "source", reference = "board.toml", result = "Format 2 board identity and source contract are present." },
+  { kind = "host", reference = "docs/verification.md", command = "unixnu defconfig; unixnu fetch; unixnu status --json; unixnu tree; porting-record.py check", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The local repository and official record structure were reviewed." },
+]
 
-[areas.storage]
-level = "device"
+[[area]]
+id = "firmware"
+status = "host-verified"
+components = ["DarwinBoot"]
+paths = ["board.toml", "proprietary-files.txt", "package/**", "local.toml.example"]
+inputs = ["Separate private challengethepeek/uefi-rothko firmware repository, rothko DSC/FD paths, DarwinBoot handoff, GOP framebuffer and 56 MiB payload FAT volume.", "UEFI device reset, PHY, refclk and BlockIO state are treated as firmware-owned and audited separately from XNU."]
+configuration = ["board.toml records the private UEFI checkout, rothko.dsc, SILICIUM_UEFI.fd path and firmware defines.", "The XNU payload uses firmware loader handoff, 8 GiB owned-memory intent and PSCI SMC."]
+procedure = ["Build UEFI through the official DeviceBuild.py and stuart path in the private firmware checkout.", "Build the payload and boot image with the official UniXNU tools after the firmware FD is available."]
+findings = ["Official UEFI builds completed offline and the device reached the Darwin handoff; UFS link/DP success and later NOP/descriptor issues were observed in separate captures.", "The unx17 BROM incident is recorded as unresolved; this device repository does not claim that LUN0 was written or that the private firmware is safe for another hardware run."]
+completion = ["A reviewed private firmware revision builds, enters DarwinBoot, publishes the documented framebuffer and preserves the handoff memory contract."]
+limits = ["The private UEFI source and current unx18 safety candidate are intentionally outside this public repository; current firmware runtime closure and the BROM cause remain open."]
+next_action = ["Publish a reviewed UEFI revision or link a private CI result before marking firmware device-verified."]
+evidence = [
+  { kind = "source", reference = "board.toml", result = "Private firmware repository, DSC, FD and package contract are recorded." },
+  { kind = "host", reference = "docs/verification.md", command = "DeviceBuild.py; stuart; official payload and boot_v4 packaging", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The official UEFI and image build chain completed in the offline bring-up workspace." },
+]
+
+[[area]]
+id = "cpu"
+status = "device-verified"
+components = ["ArmCpu", "MtkCpuFreq"]
+paths = ["drivers/ArmCpu/**", "drivers/MtkCpuFreq/**", "dts/rothko.dts"]
+inputs = ["Eight MT6989 CPUs, GICv3, 13 MHz timer, PSCI SMC, self-IPI and MMIO-IPI paths.", "The stock FDVFS interface and effective DT CPU vote table for the fixed boot-frequency request."]
+configuration = ["payload kernel_args enables cpus=8, sheng-smp, armcpu-self-ipi and armcpu-mmio-ipi.", "The board DTS records cpu-count=8 and timebase-frequency=13000000."]
+procedure = ["Build ArmCpu and MtkCpuFreq archives, link the kernel and capture K1-K4, timer and IPI markers from pmsg.", "Compare the fixed FDVFS request path with the stock DT and firmware table."]
+findings = ["All eight CPU startup, timer and IPI activity were observed on the device.", "MtkCpuFreq is a fixed boot request; it is not a dynamic governor and no XNU-side frequency measurement proves that it resolves the reported system slowness."]
+completion = ["Every enabled CPU reaches its entry checkpoint and timer/IPI handling works; any frequency claim must include a measured runtime frequency."]
+limits = ["Dynamic cpufreq/governor behavior and the cause of perceived system slowness remain unverified."]
+next_action = ["Capture a same-image runtime frequency/latency trace before changing CPU policy again."]
+evidence = [
+  { kind = "source", reference = "drivers/ArmCpu/ArmCpu.cpp", result = "ArmCpu startup and interrupt-controller implementation are present." },
+  { kind = "device", reference = "docs/verification.md", command = "pull pmsg/pstore and inspect K1-K4, timer and IPI markers", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "Eight-core startup, timer and IPI activity were observed." },
+]
+
+[[area]]
+id = "memory"
+status = "device-verified"
+components = ["RamBlock"]
+paths = ["dts/rothko.dts", "drivers/NativeRamBlock/**", "configs/rothko_defconfig"]
+inputs = ["MT6989 DRAM map, 8 GiB owned-memory target, XNU 4 KiB page tables, DMA ranges and the packed seed ramdisk.", "The 4 GiB and 8 GiB bootstrap/page-table observations from the K70U bring-up captures."]
+configuration = ["payload.adt.owned_memory_size is 0x200000000 and the board DTS records the DRAM range.", "NativeRamBlock supplies the packed Data seed without making the UEFI firmware a persistent disk writer."]
+procedure = ["Generate the board ADT, link the kernel and replay/observe the native 4 KiB bootstrap table construction before payload handoff.", "Check the seed hash and logical Data size against the recorded source artifact."]
+findings = ["The 8 GiB bootstrap table pool was enlarged after a reproducible page-table boundary failure; the corrected path reached later XNU stages.", "The Data seed was imported in the root-matching captures; memory pressure and jetsam were still visible in earlier 2 GiB/4 GiB runs."]
+completion = ["The declared memory and DMA regions are represented in ADT, page tables are built for the selected memory size and the packed seed imports with its recorded identity."]
+limits = ["A complete long-duration memory-pressure comparison across 4 GiB and 8 GiB is not available; this area does not claim that RAM size alone fixes the UI stalls."]
+next_action = ["Repeat a same-image 8 GiB run with persistent pmsg and memory-pressure counters if the device is recovered."]
+evidence = [
+  { kind = "source", reference = "dts/rothko.dts", result = "The board memory range and CPU/DMA-facing hardware record are source-controlled." },
+  { kind = "device", reference = "docs/verification.md", command = "capture pmsg and inspect ADT/page-table and NativeRamBlock markers", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The corrected bootstrap path and seed import reached later XNU stages on device captures." },
+]
+
+[[area]]
+id = "storage"
+status = "device-verified"
+components = ["SoftwareAES", "RamBlock", "AppleKeyStoreState", "VerifiedRoot", "NativeMtkUfs", "NativeAES", "NativeRamBlock"]
+paths = ["drivers/NativeMtkUfs/**", "drivers/NativeAES/**", "drivers/NativeRamBlock/**", "drivers/NativeKeyStoreEvents/**", "board.toml", "package/**"]
+inputs = ["MT6989 UFS host at 0x112b0000, UFS4 device, LU2 4096-byte user blocks, HS-G5 dual-lane XNU path, GPT unixnu window and root UUID.", "OS/SystemOS readonly windows, Data seed and the explicit distinction between XNU reads and UEFI BlockIO ownership."]
+configuration = ["board.toml records the unixnu GPT LBA range, 4096-byte blocks, root-match UUID and readonly OS/SystemOS windows.", "NativeMtkUfs and NativeAES are included as separate XNU services; the UEFI repository is separately audited for refclk/reset/PHY writes."]
+procedure = ["Build the UFS/AES/RamBlock archives, prelink the kernel and capture link, lane, capacity, GPT, root-match and read markers.", "Keep all persistence writes inside the declared unixnu Data/Log windows and review UEFI writes independently."]
+findings = ["Device evidence showed XNU UFS HS-G5 dual-lane reads, LU2 activity, root matching and sustained reads.", "The later UEFI/BROM incident is not attributed to a proven LUN0 write; the firmware-side refclk/reset/PHY audit remains separate from this XNU evidence."]
+completion = ["Host/link/read/root/persistence boundaries match the board inventory and no write path escapes the declared unixnu windows."]
+limits = ["Long-term UFS persistence and the BROM cause are unresolved; this record does not claim that the private UEFI is safe to run again."]
+next_action = ["After device recovery, run a read-first UFS capture with the reviewed UEFI safety revision and record the exact firmware and image hashes."]
+evidence = [
+  { kind = "source", reference = "drivers/NativeMtkUfs/NativeMtkUfs.cpp", result = "MT6989 UFS host and readonly media implementation are present." },
+  { kind = "device", reference = "docs/verification.md", command = "pull pmsg and inspect UFS link, LU2 reads, GPT and root-match markers", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "HS-G5 dual-lane reads and root matching were observed in the unx16 follow-up evidence." },
+]
+
+[[area]]
+id = "display"
+status = "device-verified"
+components = ["GopFramebuffer", "NativeMobileDisplay"]
+paths = ["drivers/NativeMobileDisplay/**", "kits/rothko/**", "board.toml"]
+inputs = ["1220x2712 panel geometry, 32 bpp GOP framebuffer, CMD-mode DSI and the firmware-to-XNU framebuffer handoff.", "The requirement to push each composed frame actively on the CMD panel."]
+configuration = ["The board payload keeps the active CMD presentation flags and the DTS records 1220x2712x32 geometry.", "NativeMobileDisplay maps the framebuffer and performs the explicit post-composition push."]
+procedure = ["Build the display archive, prelink and package the payload, then observe the first frame and activation UI on the physical device.", "Keep display and UFS logs in pmsg so a frozen screen can be separated from a reset."]
+findings = ["The device reached the activation page with the CMD active-push path.", "Long-term presentation, unlock-to-desktop stability and the later black-screen behavior remain open; the evidence does not identify GPU as the cause."]
+completion = ["A known frame has correct geometry and colors, userland reaches the activation page and repeated frame pushes continue after handoff."]
+limits = ["Stable desktop presentation and wake-after-lock have not been demonstrated on the same final public repository revision."]
+next_action = ["Capture frame-push counters together with lock/unlock and wake-key events in one device run."]
+evidence = [
+  { kind = "source", reference = "drivers/NativeMobileDisplay/NativeMobileDisplay.cpp", result = "CMD presentation and framebuffer source are present." },
+  { kind = "device", reference = "docs/verification.md", command = "boot the matched payload and observe the activation page with CMD push logs", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The activation page was observed on the unx7 baseline." },
+]
+
+[[area]]
+id = "input"
 status = "implemented"
-sources = ["drivers/NativeMtkUfs", "drivers/NativeRamBlock"]
-notes = "UFS LU2 read path, unixnu userdata windows and Data seed integration; hardware root evidence exists in unx16/unx17 logs."
+components = ["NativeHidInput", "GoodixBerlin9916K"]
+paths = ["drivers/NativeHidInput/**", "kits/rothko/InputProbe.cpp", "kits/rothko/GoodixConfig.h"]
+inputs = ["Goodix Berlin9916K on SPI6, reset GPIO3, IRQ GPIO4, 1220x2712 coordinate space and the corrected MT6363/GPIO key routes.", "Touch HID report format, contact IDs and the three physical key routes in the effective DT/DTBO."]
+configuration = ["The board kit binds Goodix coordinates and firmware configuration; the kernel flags enable k70u-touch and HID input.", "The source records volume-up GPIO196 and MT6363 HOMEKEY/PWRKEY routes without treating the KPD fallback as the board's final mapping."]
+procedure = ["Build NativeHidInput and the rothko kit, then capture sensor reports, HID queue movement, touch interactions and key wake.", "Compare reported coordinates and button events with the display geometry and effective DT resources."]
+findings = ["Goodix sensor reports and HID queue activity were observed on device.", "UI touch interaction and physical-key wake were not confirmed; the earlier three-second lock and black-screen report remains open."]
+completion = ["Touches map to the display, simultaneous contacts keep stable IDs, release events arrive and all three buttons produce the expected HID reports and wake behavior."]
+limits = ["Only the lower-level report/queue path is device-observed; successful UI interaction and wake-key behavior are pending."]
+next_action = ["Run a matched-image touch/volume-up/power/volume-down matrix and save the pmsg plus screen state for each event."]
+evidence = [
+  { kind = "source", reference = "kits/rothko/InputProbe.cpp", result = "The board-specific Goodix and key input wiring is source-controlled." },
+  { kind = "device", reference = "docs/verification.md", command = "pull pmsg and inspect Goodix reports and HID queue head/tail", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "Sensor reports and HID queue activity were observed; UI touch and wake remain unverified." },
+]
 
-[areas.display]
-level = "device"
-status = "implemented"
-sources = ["drivers/NativeMobileDisplay", "kits/rothko"]
-notes = "GOP/CMD active presentation and 1220x2712 panel geometry reached the activation page; long-term userland/display stability remains open."
-
-[areas.input]
-level = "device"
-status = "implemented"
-sources = ["drivers/NativeHidInput", "kits/rothko"]
-notes = "Goodix Berlin9916K reports and HID queue activity are observed; UI touch interaction and key wake remain unverified."
-
-[areas.power]
-level = "source"
-status = "partial"
-sources = ["drivers/MtkCpuFreq"]
-notes = "FDVFS boot requests are integrated; runtime governor and battery backend remain open."
-
-[areas.wireless]
-level = "none"
+[[area]]
+id = "gpu"
 status = "planned"
-sources = []
-notes = "Wi-Fi and Bluetooth are documented separately and not claimed as implemented."
+components = []
+paths = ["drivers/NativeMobileDisplay/**", "dts/rothko.dts"]
+inputs = ["MT6989 GPU/firmware, SMMU, submission, fence and Metal client contract."]
+configuration = ["The current display path uses GOP/CMD presentation and does not claim a native GPU implementation."]
+procedure = ["Collect GPU/GMU firmware and SMMU ownership facts before selecting a driver."]
+findings = ["The observed UI and display path does not by itself prove a GPU implementation or a GPU root cause for the reported lag."]
+completion = ["GPU submissions, mappings, fences and a selected Metal client render and present a known image."]
+limits = ["No native GPU driver, firmware contract or device rendering trace is recorded in this repository."]
+next_action = ["Inventory the stock GPU firmware, SMMU streams and Android reference implementation."]
+evidence = []
 
-[areas.firmware]
-level = "external"
-status = "separate-repository"
-sources = ["git@github.com:challengethepeek/uefi-rothko.git"]
-notes = "UEFI is intentionally outside this repository."
+[[area]]
+id = "network"
+status = "planned"
+components = []
+paths = ["dts/rothko.dts", "proprietary-files.txt"]
+inputs = ["MT6639 Wi-Fi over the board's ConnV3/PCIe/AXI/WFDMA path and its firmware/calibration inputs."]
+configuration = ["No Wi-Fi component is selected in board.toml; proprietary firmware is not copied into this repository."]
+procedure = ["Identify the bus, firmware, interrupts, DMA and OS interface, then implement scanning and packet transfer."]
+findings = ["Wi-Fi was documented during bring-up but no driver or device network result is claimed."]
+completion = ["Scanning, association, address configuration and sustained receive/transmit traffic pass with the selected firmware."]
+limits = ["The bus contract, firmware source and XNU network service are incomplete."]
+next_action = ["Collect the stock DT, firmware names and Android driver trace for MT6639."]
+evidence = []
 
-[areas.verification]
-level = "device"
-status = "partial"
-sources = ["docs/verification.md"]
-notes = "Activation UI, XNU entry, SMP, HID and UFS read evidence recorded; BROM incident remains unresolved."
+[[area]]
+id = "cellular"
+status = "planned"
+components = []
+paths = ["dts/rothko.dts", "proprietary-files.txt"]
+inputs = ["Cellular/modem scope and firmware inventory for the Redmi K70 Ultra."]
+configuration = ["No cellular component is selected and no modem firmware is copied into the device repository."]
+procedure = ["Confirm whether this board's UniXNU scope includes modem support before selecting a protocol stack."]
+findings = ["No cellular implementation or device evidence was part of the current bring-up."]
+completion = ["If in scope, modem firmware, control/data protocol and network registration pass; otherwise document the board exclusion."]
+limits = ["The current port has no modem implementation or verified scope decision."]
+next_action = ["Record a not-applicable decision or inventory the modem interface before implementation."]
+evidence = []
+
+[[area]]
+id = "audio"
+status = "planned"
+components = []
+paths = ["dts/rothko.dts", "proprietary-files.txt"]
+inputs = ["MT6989 audio DSP, codec, clocks, firmware services and playback/capture routes."]
+configuration = ["No audio component is selected in the current board configuration."]
+procedure = ["Inventory the audio DSP/codec and Android routes, then implement one playback and capture path."]
+findings = ["Audio was not part of the current device bring-up evidence."]
+completion = ["Declared routes carry the selected audio format through playback and capture with correct start/stop behavior."]
+limits = ["No audio source, firmware or device result is recorded."]
+next_action = ["Collect stock audio DT, firmware and route information."]
+evidence = []
+
+[[area]]
+id = "power"
+status = "implemented"
+components = ["MtkCpuFreq"]
+paths = ["drivers/MtkCpuFreq/**", "dts/rothko.dts"]
+inputs = ["MT6989 FDVFS support table, per-core vote registers, firmware-owned voltage/PLL control and the active NFG1000A gauge address."]
+configuration = ["MtkCpuFreq sends the fixed boot request supported by the board's FDVFS table; it is not a runtime governor.", "The active battery gauge is recorded as a separate pending backend and is not confused with the disabled MT6375 path."]
+procedure = ["Build and link MtkCpuFreq, then compare request/readback logs with stock FDVFS metadata.", "Implement battery/IOP power source only after the I2C11/0x55 NFG1000A path is independently verified."]
+findings = ["The fixed CPU performance request is source- and host-verified; it does not establish the cause of the reported lag.", "Battery service is not connected to XNU and no sleep/resume transition is claimed."]
+completion = ["Declared power controls and battery readings match observations and each claimed sleep/resume transition restores dependent peripherals."]
+limits = ["Runtime governor, battery service and sleep/resume are incomplete; only the fixed CPU request is implemented."]
+next_action = ["Add a read-only NFG1000A backend and capture power/latency behavior only after the device is recovered."]
+evidence = [
+  { kind = "source", reference = "drivers/MtkCpuFreq/MtkCpuFreq.cpp", result = "FDVFS request implementation and board-specific table are present." },
+  { kind = "host", reference = "docs/verification.md", command = "build MtkCpuFreq archive and link the kernel with the stock FDVFS table", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The fixed boot-frequency request compiled and was included in the offline image build." },
+]
+
+[[area]]
+id = "packaging"
+status = "host-verified"
+components = ["XnuPrelink", "DarwinBoot"]
+paths = ["scripts/**", "package/**", "board.toml", "unixnu.lock", "patches/**"]
+inputs = ["iPadOS 17.7.11 / 21H461 kernelcache, prelink ABI, payload FAT volume, UEFI FD and stock-compatible boot image envelope."]
+configuration = ["board.toml records the kernelcache hash, prelink roots/slide, payload volume, memory size and root-match UUID.", "scripts/package.sh delegates to the official unixnu release path; package/unixnu.toml records the payload entry."]
+procedure = ["Run the official kernel link, XnuPrelink, UEFI build, payload and boot_v4 packer in order.", "Record every output hash and keep generated images outside the Git repository."]
+findings = ["The official offline build chain completed for the recorded unx15/unx16/unx17/unx18 candidates; the final public device repository intentionally contains no firmware or image binaries."]
+completion = ["Kernel and prelink succeed, payload contains declared inputs and boot images match the firmware's format and size constraints."]
+limits = ["The private UEFI input and latest candidate images are not reproducible from the public repository alone until the private firmware checkout is available."]
+next_action = ["Run scripts/package.sh --check --os 17 from a clean checkout with the private UEFI secret and publish the CI result."]
+evidence = [
+  { kind = "source", reference = "scripts/package.sh", result = "The repository carries the official packaging wrapper." },
+  { kind = "host", reference = "docs/verification.md", command = "kernel link; XnuPrelink; DeviceBuild/stuart; payload; boot_v4", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The offline official build and packaging chain completed for the bring-up candidates." },
+]
+
+[[area]]
+id = "diagnostics"
+status = "device-verified"
+components = []
+paths = ["docs/**", "scripts/**", "unixnu.lock", ".github/workflows/**"]
+inputs = ["pmsg/ramoops, UEFI console, dmesg, unixnu log ring, adb/fastboot capture and the persistent evidence reports."]
+configuration = ["The payload enables serial/pmsg and the board keeps the logs needed to distinguish handoff, XNU, UFS, display and userland stages."]
+procedure = ["Capture pstore/pmsg and firmware logs after each boot attempt; record image/source hashes and the last completed checkpoint.", "Run the official porting-record checker before publishing the device revision."]
+findings = ["The record distinguishes observed XNU entry, SMP, HID, UFS/root and activation-page milestones from unresolved UI wake, peripheral and BROM questions."]
+completion = ["Each claimed milestone has a reproducible command, matching source/image revision and an accessible result."]
+limits = ["The public repository does not contain the large proprietary logs or private UEFI images; references point to the compact verification record and parent bring-up reports."]
+next_action = ["Publish a compact per-run evidence manifest alongside the next recovered-device test."]
+evidence = [
+  { kind = "source", reference = "docs/verification.md", result = "The compact verification record defines the evidence boundary." },
+  { kind = "device", reference = "docs/verification.md", command = "capture pstore/pmsg, firmware console and image hashes after a manual boot cycle", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The recorded captures identify early XNU, SMP, UFS/root, HID and activation milestones and retain the unresolved BROM event." },
+]
 
 

@@ -1,9 +1,20 @@
+schema_version = 2
+
 [board]
 name = "rothko"
 soc = "MT6989"
+soc_source = "mt6989-local"
+os_profile = "ipados-17.7.11-21H461"
 description = "Xiaomi Redmi K70 Ultra (rothko, MediaTek Dimensity 9300)"
 kit = "rothko"
 example = false
+
+[components]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "RamBlock", "AppleKeyStoreState", "VerifiedRoot", "XnuPrelink", "DarwinBoot", "GopFramebuffer"]
+
+[device_tree]
+source = "device:dts/rothko.dts"
+include_dirs = []
 
 [ipsw]
 url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
@@ -20,7 +31,6 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 "044-76034-038.dmg" = "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f"
 
 [userdata]
-# GPT entry named unixnu; 4 KiB logical blocks.
 first_lba = 0x4e2af00
 last_lba = 0x7b2aeff
 lba_bytes = 4096
@@ -31,6 +41,8 @@ windows = [
 
 [kernel]
 defconfig = "rothko_defconfig"
+config_fragments = []
+patch_series = ["device:patches/xnu/series"]
 archives = [
   "build-corecrypto-14.py",
   "build-corecrypto-14.py --namespace",
@@ -66,7 +78,6 @@ roots = [
 extra_args = []
 
 [firmware]
-# UEFI is a separate repository; this device repository only records the contract.
 external_repository = "git@github.com:challengethepeek/uefi-rothko.git"
 config = "rothko"
 dsc = "Platforms/Xiaomi/rothkoPkg/rothko.dsc"
@@ -81,6 +92,9 @@ ENABLE_SECUREBOOT = "0"
 DEVICE_MODEL = "rothko"
 MEMORY_PROTECTION = "TRUE"
 SHIP_MODE = "FALSE"
+
+[bootimg]
+# The official packer supplies the stock-compatible DTB and AVB envelope.
 
 [payload]
 volume = "UNIXNU"
@@ -121,4 +135,8 @@ packed_data_ramdisk = true
 ipad_identity = true
 unique_chip_id = "required"
 
+[package]
+unixnu = "../UniXNU"
 
+[package.defconfig]
+"ipados-17.7.11-21H461" = "rothko_defconfig"
