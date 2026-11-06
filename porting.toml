@@ -4,7 +4,7 @@ schema_version = 1
 name = "rothko"
 soc = "MT6989"
 os_profile = "ipados-17.7.11-21H461"
-summary = "Offline and device evidence record for the Xiaomi Redmi K70 Ultra UniXNU port. The record separates source implementation, host builds and the milestones observed on the physical device."
+summary = "Xiaomi Redmi K70 Ultra (MT6989) UniXNU port. Device testing reached the activation page with UFS HS-G5 root access, active CMD display presentation, Goodix/HID activity and eight-core SMP; touch interaction, key wake, Wi-Fi, Bluetooth, battery and stable post-activation behavior remain open."
 
 [[area]]
 id = "configuration"
