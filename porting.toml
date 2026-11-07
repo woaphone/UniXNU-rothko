@@ -14,13 +14,13 @@ paths = ["board.toml", "feeds.toml", "configs/**", "dts/**", "patches/xnu/series
 inputs = ["MT6989 / Dimensity 9300 board identity, eight CPUs, 13 MHz timer, GICv3 and the iPadOS 17.7.11 / 21H461 donor profile.", "Stock effective DT, board partition geometry and the reviewed component and patch inputs."]
 configuration = ["board.toml selects the rothko board, published mt6989 common source, ipados-17.7.11-21H461 profile and device:dts/rothko.dts.", "rothko_defconfig, soc:configs/mt6989.config and patches/xnu/series select the kernel configuration and ordered XNU changes.", "unixnu.lock pins woaphone/xnu-mtk branch rothko, immutable patch base 53bc420e5acda41c1689f6690a85841393a347cf and final fd4edc747395525a914987bb88f063b5e549ecc7."]
 procedure = ["Run unixnu defconfig rothko_defconfig -D ../UniXNU-rothko.", "Run unixnu fetch, unixnu status --json and unixnu tree, then run scripts/porting-record.py check."]
-findings = ["The device repository now consumes the published woaphone/UniXNU-mt6989-common source for shared CPU, PSCI, GICv3 and timer resources.", "The board firmware pin resolves to ChallengeThePeak/Silicium-Rothko and its rothkoPkg build entry.", "The XNU source explicitly overrides the default Apple feed with woaphone/xnu-mtk branch rothko at fd4edc747395525a914987bb88f063b5e549ecc7.", "The format 2 board now retains the complete arch, SoC, OS and device patch-series order instead of replacing the inherited entries.", "The 18-patch device XNU series applies cleanly to the rothko XNU base through fd4edc747395525a914987bb88f063b5e549ecc7."]
-completion = ["The board identity, OS profile, source pins, defconfig, DTS entry point and patch order resolve without placeholders."]
-limits = ["The shared common layer currently covers CPU/PSCI/GIC/timer; clocks, power domains, SMMU/DMA and peripheral policy remain device-specific."]
+findings = ["The device repository consumes published MT6989 CPU, PSCI, GICv3 and timer resources.", "The raw XNU feed names woaphone/xnu-mtk branch rothko at fd4edc7, but the OS profile currently overrides its effective revision with Apple d8b802.", "The selected arch/SoC/OS/device graph contains 77 patches; its full application and resulting kernel have not been qualified.", "The separate 18-patch replay from immutable 53bc420 reproduces exactly the source tree of fd4edc7.", "Board DTS is a hardware inventory/profile input; the minimal ADT generator does not parse it."]
+completion = ["Effective source revision, selected patch graph, archive recipes and generated ADT must reproduce the intended K70U inputs before build qualification."]
+limits = ["The full Format 2 release is not qualified: effective XNU pin, driver recipe registration and firmware build adapter remain open.", "The board DTS memory length currently differs from payload DRAM/owned-memory policy; a stock static memory node is not the live LK mblock map.", "The common layer currently covers CPU/PSCI/GIC/timer; clocks, power domains, SMMU/DMA and peripheral policy remain device-specific."]
 next_action = ["Move genuinely reusable MT6989 bus, clock or power resources into the common repository only after a second device or independent hardware trace confirms them."]
 evidence = [
   { kind = "source", reference = "board.toml", result = "Format 2 board identity and source contract are present." },
-  { kind = "host", reference = "docs/verification.md", command = "unixnu defconfig; unixnu fetch; unixnu status --json; unixnu tree; porting-record.py check", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The local repository and official record structure were reviewed." },
+  { kind = "host", reference = "docs/offline-audit-2026-11-07.md", command = "unixnu status --json; release --no-deps --check; porting-record.py check", revision = "13e5973748a8447cbb90520c9a2dd5e65e272435", result = "Local profile/record inspection passed with cached common/XnuPrelink inputs; effective source revision and full build integration remain open." },
 ]
 
 [[area]]
@@ -34,10 +34,10 @@ procedure = ["Build UEFI through the official DeviceBuild.py and stuart path in 
 findings = ["Official UEFI builds completed offline and the device reached the Darwin handoff; UFS link/DP success and later NOP/descriptor issues were observed in separate captures.", "The unx17 BROM incident is recorded as unresolved; this device repository does not claim that LUN0 was written or that the current UEFI is safe for another hardware run.", "The board now imports shared MT6989 CPU/GIC/timer resources from UniXNU-mt6989-common while keeping firmware paths and handoff policy board-specific.", "The complete arch/SoC/OS/device XNU patch sequence remains in the format 2 package graph."]
 completion = ["A reviewed firmware revision builds, enters DarwinBoot, publishes the documented framebuffer and preserves the handoff memory contract."]
 limits = ["The UEFI source and current unx18 safety candidate live in the separate ChallengeThePeak/Silicium-Rothko repository; current firmware runtime closure and the BROM cause remain open."]
-next_action = ["Publish a reviewed UEFI revision or link a private CI result before marking firmware device-verified."]
+next_action = ["Qualify the official DeviceBuild/stuart adapter and complete UFS command/state boundary before any future matched runtime claim."]
 evidence = [
-  { kind = "source", reference = "board.toml", result = "Private firmware repository, DSC, FD and package contract are recorded." },
-  { kind = "host", reference = "docs/verification.md", command = "DeviceBuild.py; stuart; official payload and boot_v4 packaging", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The official UEFI and image build chain completed in the offline bring-up workspace." },
+  { kind = "source", reference = "board.toml", result = "Canonical ChallengeThePeak/Silicium-Rothko firmware repository, DSC, FD and package contract are recorded." },
+  { kind = "host", reference = "docs/verification.md", command = "DeviceBuild.py; stuart; official payload and boot_v4 packaging", revision = "7005848b8fad68ac2a74f18547a77d92ac3f11b8", result = "The imported unx18 source snapshot built the final PHY-skip FD SHA256 7fedccdf2097080689526b0fcea14caa22c70d9dcf14af035dd841128c921bf9; this does not validate later repository edits or the full release adapter." }
 ]
 
 [[area]]
@@ -54,7 +54,7 @@ limits = ["Dynamic cpufreq/governor behavior and the cause of perceived system s
 next_action = ["Capture a same-image runtime frequency/latency trace before changing CPU policy again."]
 evidence = [
   { kind = "source", reference = "drivers/ArmCpu/ArmCpu.cpp", result = "ArmCpu startup and interrupt-controller implementation are present." },
-  { kind = "device", reference = "docs/verification.md", command = "pull pmsg/pstore and inspect K1-K4, timer and IPI markers", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "Eight-core startup, timer and IPI activity were observed." },
+  { kind = "device", reference = "docs/verification.md", command = "pull pmsg/pstore and inspect K1-K4, timer and IPI markers", revision = "142fc32699a9faeb9e81fb93705319ec76ae0aaf", result = "unx8 captured eight-core startup, timer and IPI activity; fixed FDVFS performance was not validated by that run." },
 ]
 
 [[area]]
@@ -71,7 +71,7 @@ limits = ["A complete long-duration memory-pressure comparison across 4 GiB and 
 next_action = ["Repeat a same-image 8 GiB run with persistent pmsg and memory-pressure counters if the device is recovered."]
 evidence = [
   { kind = "source", reference = "dts/rothko.dts", result = "The board memory range and CPU/DMA-facing hardware record are source-controlled." },
-  { kind = "device", reference = "docs/verification.md", command = "capture pmsg and inspect ADT/page-table and NativeRamBlock markers", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The corrected bootstrap path and seed import reached later XNU stages on device captures." },
+  { kind = "device", reference = "docs/verification.md", command = "capture pmsg and inspect ADT/page-table and NativeRamBlock markers", revision = "fa4d518c74d62f0f603df1fde1a12bc91515ecce", result = "unx16 Build16 capture reached root and seed import; separate offline bootstrap replay proves the 8 GiB table correction, not complete long-duration memory qualification." },
 ]
 
 [[area]]
@@ -88,7 +88,7 @@ limits = ["Long-term UFS persistence and the BROM cause are unresolved; this rec
 next_action = ["After device recovery, run a read-first UFS capture with the reviewed UEFI safety revision and record the exact firmware and image hashes."]
 evidence = [
   { kind = "source", reference = "drivers/NativeMtkUfs/NativeMtkUfs.cpp", result = "MT6989 UFS host and readonly media implementation are present." },
-  { kind = "device", reference = "docs/verification.md", command = "pull pmsg and inspect UFS link, LU2 reads, GPT and root-match markers", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "HS-G5 dual-lane reads and root matching were observed in the unx16 follow-up evidence." },
+  { kind = "device", reference = "docs/verification.md", command = "pull pmsg and inspect UFS link, LU2 reads, GPT and root-match markers", revision = "fa4d518c74d62f0f603df1fde1a12bc91515ecce", result = "unx16 Build16 follow-up confirms HS-G5 dual-lane reads and root matching; current UEFI command/state safety remains open." },
 ]
 
 [[area]]
@@ -105,7 +105,7 @@ limits = ["Stable desktop presentation and wake-after-lock have not been demonst
 next_action = ["Capture frame-push counters together with lock/unlock and wake-key events in one device run."]
 evidence = [
   { kind = "source", reference = "drivers/NativeMobileDisplay/NativeMobileDisplay.cpp", result = "CMD presentation and framebuffer source are present." },
-  { kind = "device", reference = "docs/verification.md", command = "boot the matched payload and observe the activation page with CMD push logs", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The activation page was observed on the unx7 baseline." },
+  { kind = "device", reference = "docs/verification.md", command = "boot the matched payload and observe the activation page", revision = "142fc32699a9faeb9e81fb93705319ec76ae0aaf", result = "User observed the unx7 activation page; individual presentation counters were not captured for that observation." },
 ]
 
 [[area]]
@@ -122,7 +122,7 @@ limits = ["Only the lower-level report/queue path is device-observed; successful
 next_action = ["Run a matched-image touch/volume-up/power/volume-down matrix and save the pmsg plus screen state for each event."]
 evidence = [
   { kind = "source", reference = "kits/rothko/InputProbe.cpp", result = "The board-specific Goodix and key input wiring is source-controlled." },
-  { kind = "device", reference = "docs/verification.md", command = "pull pmsg and inspect Goodix reports and HID queue head/tail", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "Sensor reports and HID queue activity were observed; UI touch and wake remain unverified." },
+  { kind = "device", reference = "docs/verification.md", command = "pull pmsg and inspect Goodix reports and HID queue head/tail", revision = "142fc32699a9faeb9e81fb93705319ec76ae0aaf", result = "unx8 sensor reports and HID activity were captured; UI touch and three-key wake remain unverified." },
 ]
 
 [[area]]
@@ -132,7 +132,7 @@ components = []
 paths = ["drivers/NativeMobileDisplay/**", "dts/rothko.dts"]
 inputs = ["MT6989 GPU/firmware, SMMU, submission, fence and Metal client contract."]
 configuration = ["The current display path uses GOP/CMD presentation and does not claim a native GPU implementation."]
-procedure = ["Collect GPU/GMU firmware and SMMU ownership facts before selecting a driver."]
+procedure = ["Collect the board GPU firmware and SMMU ownership facts before selecting a driver; do not import Qualcomm GMU terminology as a MediaTek hardware fact."]
 findings = ["The observed UI and display path does not by itself prove a GPU implementation or a GPU root cause for the reported lag.", "The MT6989 common repository intentionally exports no GPU, SMMU, firmware or Metal policy."]
 completion = ["GPU submissions, mappings, fences and a selected Metal client render and present a known image."]
 limits = ["No native GPU driver, firmware contract or device rendering trace is recorded in this repository."]
@@ -147,7 +147,7 @@ paths = ["dts/rothko.dts", "proprietary-files.txt"]
 inputs = ["MT6639 Wi-Fi over the board's ConnV3/PCIe/AXI/WFDMA path and its firmware/calibration inputs."]
 configuration = ["No Wi-Fi component is selected in board.toml; proprietary firmware is not copied into this repository."]
 procedure = ["Identify the bus, firmware, interrupts, DMA and OS interface, then implement scanning and packet transfer."]
-findings = ["Wi-Fi was documented during bring-up but no driver or device network result is claimed.", "The board DTS imports common CPU/GIC resources but still defines wireless resources locally."]
+findings = ["MT6639 Wi-Fi and UART3 Bluetooth were documented during bring-up; neither has an implemented OS transport service.", "Wireless bus/power resources are recorded in the offline peripheral audit; the minimal board DTS does not yet describe the complete transport."]
 completion = ["Scanning, association, address configuration and sustained receive/transmit traffic pass with the selected firmware."]
 limits = ["The bus contract, firmware source and XNU network service are incomplete."]
 next_action = ["Collect the stock DT, firmware names and Android driver trace for MT6639."]
@@ -192,10 +192,10 @@ procedure = ["Build and link MtkCpuFreq, then compare request/readback logs with
 findings = ["The fixed CPU performance request is source- and host-verified; it does not establish the cause of the reported lag.", "Battery service is not connected to XNU and no sleep/resume transition is claimed.", "Clock, regulator, FDVFS and battery policy remain board-specific after the shared CPU-resource split."]
 completion = ["Declared power controls and battery readings match observations and each claimed sleep/resume transition restores dependent peripherals."]
 limits = ["Runtime governor, battery service and sleep/resume are incomplete; only the fixed CPU request is implemented."]
-next_action = ["Add a read-only NFG1000A backend and capture power/latency behavior only after the device is recovered."]
+next_action = ["Reuse the already tested NFG1000A read-only register backend, then implement I2C11 transport and IOPMPowerSource publication; retain runtime governor and sleep/resume as separate open items."]
 evidence = [
   { kind = "source", reference = "drivers/MtkCpuFreq/MtkCpuFreq.cpp", result = "FDVFS request implementation and board-specific table are present." },
-  { kind = "host", reference = "docs/verification.md", command = "build MtkCpuFreq archive and link the kernel with the stock FDVFS table", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The fixed boot-frequency request compiled and was included in the offline image build." },
+  { kind = "host", reference = "docs/verification.md", command = "build the board input archive with MtkCpuFreq and link the kernel", revision = "fd4edc747395525a914987bb88f063b5e549ecc7", result = "unx17 fixed FDVFS request compiled in the isolated board input archive; this does not qualify a standalone build-arm-driver.py recipe or measured frequency." },
 ]
 
 [[area]]
@@ -208,11 +208,11 @@ configuration = ["board.toml records the kernelcache hash, prelink roots/slide, 
 procedure = ["Run the official kernel link, XnuPrelink, UEFI build, payload and boot_v4 packer in order.", "Record every output hash and keep generated images outside the Git repository."]
 findings = ["The official offline build chain completed for the recorded unx15/unx16/unx17/unx18 candidates; the final public device repository intentionally contains no firmware or image binaries.", "The package contract consumes the published ChallengeThePeak/Silicium-Rothko firmware tree through the path configured in board.toml and CI.", "The package graph now resolves the MT6989 common commit recorded in unixnu.lock.", "The package graph preserves arch, SoC, OS and device patch-series arrays in their intended order."]
 completion = ["Kernel and prelink succeed, payload contains declared inputs and boot images match the firmware's format and size constraints."]
-limits = ["The UEFI input is a separate repository and its current large image artifacts are not stored in this device repository."]
-next_action = ["Run scripts/package.sh --check --os 17 from a clean checkout with the UEFI input and publish the CI result."]
+limits = ["The earlier isolated unx15-unx18 build results do not qualify the current Format 2 release graph.", "Current build-arm-driver.py rejects NativeMtkUfs and MtkCpuFreq; the main firmware adapter uses direct BaseTools/CLANGPDB rather than DeviceBuild/stuart.", "Source revision override, patch graph, board input archive integration and Linux toolchain inputs need qualification before full release."]
+next_action = ["Run scripts/package.sh --no-deps --check from a compatible main checkout for local plan inspection, then repair and qualify the source/recipe/firmware integration before claiming full release success."]
 evidence = [
   { kind = "source", reference = "scripts/package.sh", result = "The repository carries the official packaging wrapper." },
-  { kind = "host", reference = "docs/verification.md", command = "kernel link; XnuPrelink; DeviceBuild/stuart; payload; boot_v4", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The offline official build and packaging chain completed for the bring-up candidates." },
+  { kind = "host", reference = "docs/verification.md", command = "kernel link; XnuPrelink; DeviceBuild/stuart; payload; boot_v4", revision = "fd4edc747395525a914987bb88f063b5e549ecc7", result = "Candidate-specific isolated build receipts for unx15 through unx18 are indexed in verification.md; the current Format 2 full release is not qualified." }
 ]
 
 [[area]]
@@ -229,7 +229,7 @@ limits = ["The public repository does not contain the large proprietary logs or 
 next_action = ["Publish a compact per-run evidence manifest alongside the next recovered-device test."]
 evidence = [
   { kind = "source", reference = "docs/verification.md", result = "The compact verification record defines the evidence boundary." },
-  { kind = "device", reference = "docs/verification.md", command = "capture pstore/pmsg, firmware console and image hashes after a manual boot cycle", revision = "d8def1ff64f9259a83cd37154eb5589a77dbb2f7", result = "The recorded captures identify early XNU, SMP, UFS/root, HID and activation milestones and retain the unresolved BROM event." },
+  { kind = "device", reference = "docs/verification.md", command = "inspect retained pstore/pmsg and candidate identities", revision = "fa4d518c74d62f0f603df1fde1a12bc91515ecce", result = "Earlier unx7/unx8/unx16 captures and user observations establish separate milestones; the unx17 BROM report has no same-attempt command trace or LUN readback." }
 ]
 
 

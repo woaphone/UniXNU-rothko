@@ -3,6 +3,7 @@ out/
 build/
 .cache/
 local.toml
+build.local.toml
 *.img
 *.fd
 *.ipsw

@@ -6,7 +6,7 @@ on:
       os:
         description: "OS profile of the images"
         type: choice
-        options: ["17", "26", "27"]
+        options: ["17"]
         default: "17"
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ChallengeThePeak/Silicium-Rothko
-          token: ${{ secrets.UEFI_REPO_TOKEN }}
+          token: ${{ secrets.UEFI_REPO_TOKEN || github.token }}
           path: uefi-rothko
           submodules: recursive
       - name: tools

@@ -17,8 +17,8 @@ The port targets the iPad7,1 / iPadOS 17.7.11 / build 21H461 donor used by the e
 - `feeds.toml` — published MT6989 common SoC source, local UFS driver and xnu-mtk source pins.
 - `porting.toml` — official schema version 1 record with configuration, firmware, CPU, memory, storage, display, input, GPU, network, cellular, audio, power, packaging and diagnostics areas.
 - `configs/rothko_defconfig` and `patches/xnu/series` — selected kernel configuration and ordered XNU patches.
-- `dts/rothko.dts` — reviewable board hardware description used by the ADT generator.
-- `drivers/` and `kits/rothko/` — board and device implementations, including MT6989 platform/CPU, readonly UFS/Data, display, HID, Goodix and fixed FDVFS request code.
+- `dts/rothko.dts` — reviewable board hardware inventory and profile input. The current ADT generator emits a separate minimal tree from command-line arguments and constants; it does not parse this DTS.
+- `drivers/` and `kits/rothko/` — board and device implementations, including MT6989 platform/CPU, UFS with read-only OS/SystemOS and bounded LU2 Data/Log writes, display, HID, Goodix and fixed FDVFS request code.
 - `package/` and `scripts/package.sh` — board package and the official `unixnu release` wrapper.
 - `docs/verification.md` — compact evidence boundary and reproducibility record.
 - `unixnu.lock` — pins the XNU repository, stable branch, immutable patch base and final revision.
@@ -33,7 +33,7 @@ The repository follows the eight official stages:
 2. **Choose shared support.** The iPadOS profile, ARM64/XNU patch base, `UniXNU-mt6989-common` and reusable catalog components are selected in `board.toml`; the board DTS keeps only device-specific hardware.
 3. **Create the device repository.** The format 2 files, device kit, package, patch series, workflows and local override example are tracked here. `example = false` is set.
 4. **Resolve and inspect.** Run the commands below from the main UniXNU checkout and review source revisions, overrides and patch order.
-5. **Prepare hardware and firmware.** The DTS feeds the XNU ADT. The UEFI repository supplies DarwinBoot, GOP, FAT initrd support and the boot FD.
+5. **Prepare hardware and firmware.** Compare the board DTS inventory with the separately generated XNU ADT. The UEFI repository supplies DarwinBoot, GOP, FAT initrd support and the boot FD.
 6. **Adapt drivers in dependency order.** Platform/memory, storage/root, display, input, GPU, network, audio and power each have an area in `porting.toml`; unfinished areas stay `planned`.
 7. **Build and start.** Build kernel, prelink, firmware, payload and boot image through the official tools. Device observations are recorded separately from host results.
 8. **Complete and publish.** Run the record checker, review the generated diff, publish the repository and add the `unixnu` GitHub topic. The UEFI checkout is required for a complete package build.
@@ -50,18 +50,39 @@ From the main UniXNU checkout:
 python3 scripts/porting-record.py check --device ../UniXNU-rothko
 ```
 
-The official checker currently reports 14 structured areas, including the additional cellular scope record, and it passes. Shared CPU, PSCI, GICv3 and timer resources now resolve from `woaphone/UniXNU-mt6989-common`.
+The official record checker reports 14 structured areas. This checks record
+structure; it does not build or apply the complete selected patch graph.
+Shared CPU, PSCI, GICv3 and timer resources resolve from
+`woaphone/UniXNU-mt6989-common`.
+
+The 2026-11-07 offline audit found that the OS profile overrides the raw XNU
+feed pin with Apple revision `d8b80295118ef25ac3a784134bcf95cd8e88109f`.
+The resolved 77-patch graph is not a verified reproduction of the K70U
+candidate. The separately verified 18-patch replay starts at `53bc420` and
+produces exactly the source tree of `fd4edc7`.
 
 ## Build and package
 
-Copy `local.toml.example` to the ignored `local.toml` and provide paths for the main UniXNU checkout, the UEFI checkout and the donor IPSW. Then run:
+`local.toml` is for source/module overrides. Build options use a separate
+`[build]` file passed through `--config`; copy `build.local.toml.example` to
+the ignored `build.local.toml` and set the UEFI/IPSW inputs there. Select a
+Format 2 main checkout with `UNIXNU_BASE` if the default sibling `../UniXNU`
+is an older source without the `release` command.
+
+From this device checkout, inspect the release plan without fetching:
 
 ```sh
-scripts/package.sh --check --os 17 --uefi ../uefi-rothko
-scripts/package.sh --os 17 --uefi ../uefi-rothko
+scripts/package.sh --no-deps --check --os 17 --uefi ../uefi-rothko
 ```
 
-The wrapper delegates to the main checkout's official `unixnu release` command. Do not commit the UEFI tree, IPSW, proprietary firmware, generated payload or boot images.
+The wrapper delegates to the main checkout's official `unixnu release` command.
+The full release build remains blocked: current driver recipes do not accept
+`NativeMtkUfs` or `MtkCpuFreq`, the complete patch graph has not been
+qualified, and the main firmware adapter invokes BaseTools directly instead
+of the Rothko `DeviceBuild.py`/stuart entry. Earlier isolated bring-up builds
+do not validate this new release route. See
+[`docs/offline-audit-2026-11-07.md`](docs/offline-audit-2026-11-07.md).
+Do not commit proprietary inputs or generated images.
 
 ## Evidence state
 

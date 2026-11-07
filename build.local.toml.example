@@ -1,0 +1,6 @@
+# Copy to build.local.toml. scripts/package.sh passes it through --config.
+# Select the main checkout with UNIXNU_BASE when ../UniXNU is not Format 2.
+[build]
+target = "DEBUG"
+uefi = "../uefi-rothko"
+# Add ipsw with the absolute path of the locally retained donor before building.

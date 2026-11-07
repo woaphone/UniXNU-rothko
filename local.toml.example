@@ -1,5 +1,3 @@
-# Machine-local source overrides. Copy to local.toml and edit paths as needed.
-[paths]
-uefi = "../Silicium-Rothko"
-base = "../UniXNU"
-ipsw = ""
+# Source/module overrides only. Copy to local.toml and add real local paths.
+# CLI build options are configured in build.local.toml via --config instead.
+[local]
